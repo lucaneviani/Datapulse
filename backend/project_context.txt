@@ -1,0 +1,77 @@
+
+
+📘 Descrizione generale:
+DataPulse è un’applicazione completa (backend + AI + frontend) che permette a un utente di fare domande in linguaggio naturale sui propri dati (es. “Le vendite stanno andando bene questo mese?”).  
+L’AI deve:
+1. Capire la domanda.
+2. Generare una query SQL adatta al database.
+3. Eseguire la query tramite il backend.
+4. Analizzare i risultati con Python (pandas).
+5. Restituire all’utente una risposta chiara con testo e grafici.
+
+---
+
+🏗️ STRUTTURA GENERALE DEL PROGETTO:
+- **Database:** PostgreSQL (o SQLite per MVP)
+  - Tabelle di esempio: customers, products, orders, order_items
+- **Backend:** FastAPI (Python)
+  - Endpoint principale: /api/analyze → riceve domanda, genera SQL, esegue, restituisce risultati e insight.
+  - Librerie principali: FastAPI, SQLAlchemy, Pandas, OpenAI/Anthropic SDK.
+- **AI Layer:** utilizza un modello GPT o Claude
+  - Input: domanda utente + schema DB
+  - Output: SQL SELECT valida + spiegazione
+  - Seconda chiamata: trasforma i risultati in testo comprensibile (“insights” e “raccomandazioni”)
+- **Frontend:** Streamlit (per MVP)
+  - Input box per domanda
+  - Sezione che mostra: SQL generata, tabella risultati, grafico, testo insight
+
+---
+
+🎯 OBIETTIVO DEL CODICE:
+Costruire passo per passo l’applicazione che:
+- Riceve una domanda in linguaggio naturale.
+- Fa generare all’AI una query SQL sicura (solo SELECT).
+- Esegue la query e ottiene i dati dal database.
+- Mostra risultati e insight all’utente in modo leggibile.
+
+---
+
+⚙️ TECNOLOGIE E LIBRERIE:
+- Python 3.10+
+- FastAPI
+- SQLAlchemy
+- Pandas
+- OpenAI / Anthropic SDK (per le API AI)
+- Streamlit (frontend)
+- Plotly (grafici)
+- PostgreSQL o SQLite (database)
+
+---
+
+🧩 REQUISITI TECNICI PRINCIPALI:
+- Endpoint POST /api/analyze con body: { "question": "..." }
+- Il backend genera SQL tramite AI, valida che sia SELECT, poi la esegue.
+- I risultati sono restituiti come JSON e mostrati nel frontend.
+- Le risposte AI contengono 3 parti:
+  1. Riassunto dei dati trovati
+  2. Analisi (trend o confronto)
+  3. Azione raccomandata
+
+---
+
+💡 COME DEVI AIUTARMI:
+Quando ti chiedo codice o completamenti:
+- Mantieni coerenza con questa architettura.
+- Suggerisci funzioni, classi e strutture rispettando i nomi e i layer indicati.
+- Se mancano dettagli, proponi versioni minime ma funzionanti (poi le estenderò).
+- Aiutami a scrivere codice leggibile, ben commentato e adatto a un principiante.
+- Quando possibile, aggiungi test semplici e suggerimenti su come eseguire localmente il progetto.
+
+---
+
+📦 MVP OBIETTIVO:
+Versione base funzionante dove l’utente scrive una domanda in Streamlit, il backend genera SQL con AI, esegue sul DB, e mostra risultato + un piccolo insight testuale.
+
+---
+
+Da ora in poi, quando ti chiedo di generare o completare codice, **mantieni sempre questo contesto “DataGPT” in mente**.
