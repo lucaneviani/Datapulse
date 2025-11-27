@@ -12,7 +12,7 @@ L’AI deve:
 ---
 
 🏗️ STRUTTURA GENERALE DEL PROGETTO:
-- **Database:** PostgreSQL (o SQLite per MVP)
+- **Database:** Supbase
   - Tabelle di esempio: customers, products, orders, order_items
 - **Backend:** FastAPI (Python)
   - Endpoint principale: /api/analyze → riceve domanda, genera SQL, esegue, restituisce risultati e insight.
@@ -74,4 +74,665 @@ Versione base funzionante dove l’utente scrive una domanda in Streamlit, il ba
 
 ---
 
-Da ora in poi, quando ti chiedo di generare o completare codice, **mantieni sempre questo contesto “DataGPT” in mente**.
+Da ora in poi, quando ti chiedo di generare o completare codice, **mantieni sempre questo contesto “DataPulse” in mente**.
+
+Natural Language Analytics Platform
+🎯 PERCHÉ QUESTO PROGETTO È DIVERSO
+Problema reale: Ogni azienda ha dati, ma solo i data analyst sanno analizzarli. Manager, founder, team operations vogliono risposte veloci senza aspettare l'analyst.
+La tua soluzione: Una piattaforma dove CHIUNQUE può fare domande complesse sui dati in linguaggio naturale e ottenere analisi professionali automaticamente.
+Perché è unico:
+
+Non è un "dashboard" statico (tutti li fanno)
+Non è un "chatbot" generico (troppo vago)
+Non è "upload CSV e vedi grafici" (troppo semplice)
+
+È un sistema intelligente che:
+
+Capisce il contesto business dei dati
+Fa analisi multi-step complesse
+Genera insights proattivi
+Spiega il "perché" dietro i numeri
+Suggerisce azioni concrete
+
+
+🚀 IL PROGETTO: STEP-BY-STEP
+FASE 1: MVP Core (Settimana 1-2)
+Feature principale: Multi-step reasoning analytics
+Cosa lo rende speciale:
+Invece di query singole, il sistema fa ragionamento complesso:
+User chiede: "Le vendite stanno andando bene?"
+Sistema normale risponde: "Le vendite totali sono €125K"
+IL TUO sistema:
+
+Analizza vendite attuali vs periodo precedente
+Identifica trend per categoria/regione
+Rileva anomalie e outliers
+Confronta con target/benchmark
+Identifica driver principali (cosa causa il trend)
+Genera narrative + visualizzazioni + raccomandazioni
+
+Output: "Le vendite totali sono €125K (+8% vs mese scorso), ma c'è un calo del 15% nella categoria Electronics in regione Nord. Il driver principale è la riduzione del 23% negli acquisti da clienti corporate. Ti consiglio di: 1) Investigare competitor pricing in Electronics 2) Contattare top 5 corporate clients per feedback 3) Considerare promozione mirata."
+
+ARCHITETTURA TECNICA
+┌─────────────────────────────────────────────┐
+│           FRONTEND (Next.js)                │
+│  - Chat interface                           │
+│  - Dynamic visualizations                   │
+│  - Report builder                           │
+└─────────────────┬───────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────┐
+│         BACKEND (FastAPI)                   │
+│  - Query orchestrator                       │
+│  - Analysis engine                          │
+│  - Insight generator                        │
+└─────────────────┬───────────────────────────┘
+                  │
+        ┌─────────┴──────────┐
+        │                    │
+┌───────▼────────┐  ┌───────▼────────┐
+│   PostgreSQL   │  │  Vector DB     │
+│   (Raw data)   │  │  (Context)     │
+└────────────────┘  └────────────────┘
+        │                    │
+        └─────────┬──────────┘
+                  │
+        ┌─────────▼──────────┐
+        │     GPT-4/Claude   │
+        │  - Code generation │
+        │  - Insight gen     │
+        │  - Recommendations │
+        └────────────────────┘
+
+IMPLEMENTAZIONE PRATICA
+GIORNO 1-2: Setup + Data Intelligence Layer
+Il trucco: Non analizzare dati "ciechi". Costruisci un layer che CAPISCE i dati.
+esempio: 
+python# data_profiler.py
+import pandas as pd
+from sqlalchemy import create_engine, inspect, text
+import json
+from anthropic import Anthropic
+
+class DataIntelligence:
+    def __init__(self, engine):
+        self.engine = engine
+        self.client = Anthropic(api_key="your-key")
+        
+    def profile_database(self):
+        """Crea una comprensione semantica del database"""
+        inspector = inspect(self.engine)
+        
+        db_profile = {
+            "tables": {},
+            "relationships": [],
+            "business_context": {}
+        }
+        
+        for table_name in inspector.get_table_names():
+            # Schema tecnico
+            columns = inspector.get_columns(table_name)
+            
+            # Sample data per capire contenuto
+            with self.engine.connect() as conn:
+                sample = pd.read_sql(f"SELECT * FROM {table_name} LIMIT 100", conn)
+            
+            # Analisi automatica
+            profile = {
+                "columns": {},
+                "row_count": len(sample),
+                "data_types": {}
+            }
+            
+            for col in sample.columns:
+                profile["columns"][col] = {
+                    "dtype": str(sample[col].dtype),
+                    "null_pct": sample[col].isnull().sum() / len(sample),
+                    "unique_values": sample[col].nunique(),
+                    "sample_values": sample[col].dropna().head(5).tolist()
+                }
+                
+                # Identifica tipo semantico
+                if "date" in col.lower() or sample[col].dtype == 'datetime64[ns]':
+                    profile["columns"][col]["semantic_type"] = "temporal"
+                elif "price" in col.lower() or "amount" in col.lower() or "revenue" in col.lower():
+                    profile["columns"][col]["semantic_type"] = "monetary"
+                elif sample[col].nunique() / len(sample) < 0.05:  # Bassa cardinalità
+                    profile["columns"][col]["semantic_type"] = "categorical"
+                elif pd.api.types.is_numeric_dtype(sample[col]):
+                    profile["columns"][col]["semantic_type"] = "metric"
+                else:
+                    profile["columns"][col]["semantic_type"] = "identifier"
+            
+            db_profile["tables"][table_name] = profile
+        
+        # Genera business context con AI
+        db_profile["business_context"] = self._generate_business_context(db_profile)
+        
+        return db_profile
+    
+    def _generate_business_context(self, db_profile):
+        """Usa AI per capire il dominio business"""
+        
+        prompt = f"""Analizza questo schema database e identifica:
+1. Che tipo di business è (e-commerce, SaaS, retail, etc.)
+2. Metriche chiave di business
+3. Possibili analisi rilevanti
+4. Relazioni importanti tra entità
+
+Schema: {json.dumps(db_profile, indent=2)}
+
+Rispondi in JSON con: business_type, key_metrics, suggested_analyses, entity_relationships"""
+
+        response = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        return json.loads(response.content[0].text)
+Perché questo è potente:
+
+Non hai bisogno di configurazione manuale
+Il sistema "capisce" automaticamente il business
+Può fare analisi contestualizzate
+
+
+GIORNO 3-5: Query Orchestrator con Multi-Step Reasoning
+Il pezzo centrale: trasforma domanda vaga in piano di analisi
+python# query_orchestrator.py
+from typing import List, Dict
+import json
+
+class AnalysisOrchestrator:
+    def __init__(self, data_intelligence, client):
+        self.di = data_intelligence
+        self.client = client
+        self.db_profile = data_intelligence.profile_database()
+    
+    def decompose_query(self, user_question: str) -> List[Dict]:
+        """Scompone domanda complessa in step analitici"""
+        
+        prompt = f"""Sei un data analyst esperto. Ricevi una domanda business e devi creare un piano di analisi multi-step.
+
+Database context:
+{json.dumps(self.db_profile["business_context"], indent=2)}
+
+Domanda utente: "{user_question}"
+
+Crea un piano di analisi con step sequenziali. Ogni step deve:
+1. Avere un obiettivo chiaro
+2. Specificare quale analisi fare
+3. Dipendere dai risultati degli step precedenti se necessario
+
+Rispondi in JSON:
+{{
+  "analysis_plan": [
+    {{
+      "step_id": 1,
+      "objective": "...",
+      "analysis_type": "descriptive|comparative|diagnostic|predictive",
+      "sql_query_needed": true/false,
+      "visualization_type": "line|bar|scatter|heatmap|table",
+      "depends_on": []
+    }},
+    ...
+  ],
+  "expected_insights": ["..."],
+  "potential_follow_ups": ["..."]
+}}"""
+
+        response = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        plan = json.loads(response.content[0].text)
+        return plan["analysis_plan"]
+    
+    def execute_analysis_plan(self, plan: List[Dict], engine) -> Dict:
+        """Esegue ogni step del piano"""
+        
+        results = {}
+        
+        for step in plan:
+            print(f"Executing step {step['step_id']}: {step['objective']}")
+            
+            # Genera SQL query se necessario
+            if step["sql_query_needed"]:
+                sql_query = self._generate_sql(step, results)
+                
+                with engine.connect() as conn:
+                    df = pd.read_sql(text(sql_query), conn)
+                    results[step["step_id"]] = {
+                        "data": df,
+                        "sql": sql_query,
+                        "objective": step["objective"]
+                    }
+            
+            # Analisi statistica aggiuntiva
+            if step["analysis_type"] == "diagnostic":
+                results[step["step_id"]]["diagnostics"] = self._run_diagnostics(
+                    results[step["step_id"]]["data"]
+                )
+        
+        return results
+    
+    def _generate_sql(self, step: Dict, previous_results: Dict) -> str:
+        """Genera SQL query per lo step"""
+        
+        context = {
+            "tables": list(self.db_profile["tables"].keys()),
+            "step": step,
+            "previous_results": {k: v["objective"] for k, v in previous_results.items()}
+        }
+        
+        prompt = f"""Genera una SQL query PostgreSQL per questo step di analisi.
+
+Database schema: {json.dumps(self.db_profile["tables"], indent=2)}
+
+Step corrente: {json.dumps(step, indent=2)}
+
+Context da step precedenti: {json.dumps(context["previous_results"], indent=2)}
+
+Genera solo la query SQL, senza spiegazioni."""
+
+        response = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        return response.content[0].text.strip()
+    
+    def _run_diagnostics(self, df: pd.DataFrame) -> Dict:
+        """Analisi statistica per capire cause"""
+        
+        diagnostics = {
+            "correlations": {},
+            "trends": {},
+            "anomalies": []
+        }
+        
+        # Correlation analysis
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        if len(numeric_cols) > 1:
+            corr_matrix = df[numeric_cols].corr()
+            # Trova correlazioni forti
+            for col1 in numeric_cols:
+                for col2 in numeric_cols:
+                    if col1 != col2 and abs(corr_matrix.loc[col1, col2]) > 0.7:
+                        diagnostics["correlations"][f"{col1}_vs_{col2}"] = corr_matrix.loc[col1, col2]
+        
+        # Trend detection
+        for col in numeric_cols:
+            if len(df) > 5:
+                # Linear regression per trend
+                from scipy import stats
+                x = range(len(df))
+                slope, intercept, r_value, p_value, std_err = stats.linregress(x, df[col].fillna(0))
+                
+                if abs(r_value) > 0.5:  # Trend significativo
+                    diagnostics["trends"][col] = {
+                        "direction": "increasing" if slope > 0 else "decreasing",
+                        "strength": abs(r_value),
+                        "rate": slope
+                    }
+        
+        # Anomaly detection (simple Z-score)
+        for col in numeric_cols:
+            mean = df[col].mean()
+            std = df[col].std()
+            anomalies = df[abs(df[col] - mean) > 3 * std]
+            if len(anomalies) > 0:
+                diagnostics["anomalies"].append({
+                    "column": col,
+                    "count": len(anomalies),
+                    "values": anomalies[col].tolist()[:5]
+                })
+        
+        return diagnostics
+
+GIORNO 6-8: Insight Generator - IL PEZZO CHE CAMBIA TUTTO
+Questo è ciò che ti differenzia: non solo dati, ma COMPRENSIONE
+python# insight_generator.py
+class InsightGenerator:
+    def __init__(self, client):
+        self.client = client
+    
+    def generate_insights(self, analysis_results: Dict, original_question: str) -> Dict:
+        """Trasforma risultati numerici in insights business"""
+        
+        # Prepara summary dei risultati
+        results_summary = self._prepare_results_summary(analysis_results)
+        
+        prompt = f"""Sei un senior data analyst che presenta risultati a stakeholder business.
+
+Domanda originale: "{original_question}"
+
+Risultati analisi:
+{results_summary}
+
+Genera un report strutturato che include:
+
+1. EXECUTIVE SUMMARY (2-3 frasi chiave)
+2. KEY FINDINGS (3-5 insights principali con numeri)
+3. ROOT CAUSE ANALYSIS (cosa causa questi pattern?)
+4. BUSINESS IMPACT (cosa significa per il business?)
+5. RECOMMENDATIONS (3 azioni concrete, prioritizzate)
+6. RISKS & CONSIDERATIONS (cosa tenere d'occhio)
+
+Usa linguaggio business, non tecnico. Sii specifico con i numeri. Rispondi in JSON."""
+
+        response = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        insights = json.loads(response.content[0].text)
+        
+        # Aggiungi visualizzazioni suggerite
+        insights["visualizations"] = self._suggest_visualizations(analysis_results)
+        
+        # Aggiungi follow-up questions proattive
+        insights["suggested_questions"] = self._generate_follow_ups(insights, original_question)
+        
+        return insights
+    
+    def _prepare_results_summary(self, analysis_results: Dict) -> str:
+        """Riassume risultati in formato leggibile"""
+        
+        summary = []
+        
+        for step_id, result in analysis_results.items():
+            summary.append(f"\nStep {step_id}: {result['objective']}")
+            
+            df = result["data"]
+            summary.append(f"Rows: {len(df)}")
+            summary.append(f"Columns: {list(df.columns)}")
+            summary.append(f"Sample data:\n{df.head(3).to_string()}")
+            
+            if "diagnostics" in result:
+                diag = result["diagnostics"]
+                if diag["trends"]:
+                    summary.append(f"Trends detected: {diag['trends']}")
+                if diag["correlations"]:
+                    summary.append(f"Correlations: {diag['correlations']}")
+                if diag["anomalies"]:
+                    summary.append(f"Anomalies: {len(diag['anomalies'])} detected")
+        
+        return "\n".join(summary)
+    
+    def _suggest_visualizations(self, analysis_results: Dict) -> List[Dict]:
+        """Suggerisce best visualizations per ogni risultato"""
+        
+        viz_suggestions = []
+        
+        for step_id, result in analysis_results.items():
+            df = result["data"]
+            
+            # Determina best viz type
+            numeric_cols = df.select_dtypes(include=['number']).columns
+            categorical_cols = df.select_dtypes(include=['object']).columns
+            
+            if len(df) > 1 and len(numeric_cols) >= 1:
+                if any('date' in col.lower() or 'time' in col.lower() for col in df.columns):
+                    viz_type = "line"  # Time series
+                elif len(categorical_cols) >= 1 and len(df) < 20:
+                    viz_type = "bar"  # Categorical comparison
+                elif len(numeric_cols) >= 2:
+                    viz_type = "scatter"  # Correlation
+                else:
+                    viz_type = "bar"
+                
+                viz_suggestions.append({
+                    "step_id": step_id,
+                    "type": viz_type,
+                    "x_axis": df.columns[0],
+                    "y_axis": numeric_cols[0] if len(numeric_cols) > 0 else df.columns[1],
+                    "title": result["objective"]
+                })
+        
+        return viz_suggestions
+    
+    def _generate_follow_ups(self, insights: Dict, original_question: str) -> List[str]:
+        """Genera domande follow-up intelligenti"""
+        
+        prompt = f"""Basandoti su questi insights, suggerisci 5 domande follow-up che uno stakeholder intelligente potrebbe fare.
+
+Domanda originale: "{original_question}"
+
+Insights trovati:
+{json.dumps(insights.get("key_findings", []), indent=2)}
+
+Le domande devono:
+- Approfondire cause root
+- Esplorare impatti
+- Validare ipotesi
+- Identificare opportunità
+
+Rispondi con lista JSON di stringhe."""
+
+        response = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        return json.loads(response.content[0].text)
+
+GIORNO 9-10: Frontend React + Visualization Engine
+typescript// components/AnalysisChat.tsx
+import { useState } from 'react';
+import { LineChart, BarChart, ScatterChart } from 'recharts';
+
+export default function AnalysisChat() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    // Add user message
+    const userMessage = { role: 'user', content: input };
+    setMessages([...messages, userMessage]);
+    
+    try {
+      // Call API
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: input })
+      });
+      
+      const data = await response.json();
+      
+      // Add assistant response
+      setMessages([...messages, userMessage, {
+        role: 'assistant',
+        content: data.insights.executive_summary,
+        fullAnalysis: data
+      }]);
+      
+      setAnalysis(data);
+    } catch (error) {
+      console.error('Analysis error:', error);
+    } finally {
+      setLoading(false);
+      setInput('');
+    }
+  };
+
+  return (
+    <div className="flex h-screen">
+      {/* Chat Panel */}
+      <div className="w-1/2 flex flex-col">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {messages.map((msg, idx) => (
+            <Message key={idx} message={msg} />
+          ))}
+          {loading && <LoadingIndicator />}
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 border-t">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask anything about your data..."
+            className="w-full p-3 border rounded-lg"
+          />
+        </form>
+      </div>
+      
+      {/* Analysis Panel */}
+      <div className="w-1/2 bg-gray-50 p-6 overflow-y-auto">
+        {analysis && <AnalysisResults analysis={analysis} />}
+      </div>
+    </div>
+  );
+}
+
+function AnalysisResults({ analysis }) {
+  return (
+    <div className="space-y-6">
+      {/* Executive Summary */}
+      <section className="bg-white p-6 rounded-lg shadow">
+        <h2 className="text-2xl font-bold mb-4">Executive Summary</h2>
+        <p className="text-lg">{analysis.insights.executive_summary}</p>
+      </section>
+      
+      {/* Key Findings */}
+      <section className="bg-white p-6 rounded-lg shadow">
+        <h3 className="text-xl font-bold mb-4">Key Findings</h3>
+        <ul className="space-y-3">
+          {analysis.insights.key_findings.map((finding, idx) => (
+            <li key={idx} className="flex items-start">
+              <span className="text-blue-600 font-bold mr-2">{idx + 1}.</span>
+              <span>{finding}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      
+      {/* Visualizations */}
+      <section className="space-y-4">
+        {analysis.insights.visualizations.map((viz, idx) => (
+          <div key={idx} className="bg-white p-6 rounded-lg shadow">
+            <h4 className="font-bold mb-4">{viz.title}</h4>
+            <DynamicChart 
+              type={viz.type} 
+              data={analysis.results[viz.step_id].data}
+              xAxis={viz.x_axis}
+              yAxis={viz.y_axis}
+            />
+          </div>
+        ))}
+      </section>
+      
+      {/* Recommendations */}
+      <section className="bg-white p-6 rounded-lg shadow">
+        <h3 className="text-xl font-bold mb-4">Recommendations</h3>
+        <ol className="space-y-4">
+          {analysis.insights.recommendations.map((rec, idx) => (
+            <li key={idx} className="border-l-4 border-green-500 pl-4">
+              <p className="font-semibold">{rec.action}</p>
+              <p className="text-sm text-gray-600 mt-1">{rec.rationale}</p>
+              <span className="inline-block mt-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                {rec.priority} priority
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      
+      {/* Suggested Follow-ups */}
+      <section className="bg-blue-50 p-6 rounded-lg">
+        <h3 className="text-lg font-bold mb-3">Suggested Follow-up Questions</h3>
+        <div className="space-y-2">
+          {analysis.insights.suggested_questions.map((q, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleFollowUp(q)}
+              className="w-full text-left p-3 bg-white hover:bg-blue-100 rounded border"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+FEATURES CHE LO RENDONO UNICO (aggiungi nelle settimane successive)
+1. Proactive Anomaly Detection
+Sistema che monitora dati in background e avvisa quando trova pattern strani:
+python# anomaly_monitor.py
+class ProactiveMonitor:
+    def scan_for_anomalies(self, df, historical_baseline):
+        """Confronta dati attuali con baseline storico"""
+        
+        anomalies_found = []
+        
+        for metric in df.columns:
+            if pd.api.types.is_numeric_dtype(df[metric]):
+                current_value = df[metric].iloc[-1]
+                historical_mean = historical_baseline[metric].mean()
+                historical_std = historical_baseline[metric].std()
+                
+                z_score = (current_value - historical_mean) / historical_std
+                
+                if abs(z_score) > 2:  # Significativo
+                    anomalies_found.append({
+                        "metric": metric,
+                        "current_value": current_value,
+                        "expected_range": (historical_mean - 2*historical_std, 
+                                         historical_mean + 2*historical_std),
+                        "severity": "high" if abs(z_score) > 3 else "medium",
+                        "auto_explanation": self._explain_anomaly(metric, df, historical_baseline)
+                    })
+        
+        return anomalies_found
+2. Comparative Analysis Engine
+Confronta automaticamente con competitors, industry benchmarks, o periodi precedenti:
+pythondef comparative_analysis(self, current_data, comparison_type="period_over_period"):
+    """
+    comparison_type: 
+    - period_over_period (QoQ, MoM, YoY)
+    - cohort_analysis
+    - segment_comparison
+    - benchmark (se hai dati industry)
+    """
+    pass
+3. Scenario Simulator
+"What-if" analysis automatico:
+pythondef simulate_scenarios(self, base_data, scenarios):
+    """
+    User: "Cosa succede se aumentiamo prezzo del 10%?"
+    
+    Sistema:
+    1. Stima elasticità domanda da dati storici
+    2. Simula impatto su revenue, volume, margin
+    3. Mostra best/worst/expected case
+    4. Raccomanda decisione
+    """
+    pass
+4. Data Story Generator
+Crea presentazioni automatiche:
+pythondef generate_presentation(self, analysis_results):
+    """
+    Output: PowerPoint/PDF con:
+    - Executive slide
+    - Key findings con viz
+    - Deep-dive slides
+    - Appendix con dettagli tecnici
+    
+    Pronto per condividere con CEO
+    """
+    pass

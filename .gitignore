@@ -1,0 +1,17 @@
+# Virtual environment (non condividere venv)
+venv/
+
+# Cache Python (file temporanei)
+__pycache__/
+*.pyc
+*.pyo
+
+# File di ambiente (per chiavi API sensibili)
+.env
+
+# Database locali (es. SQLite .db)
+*.db
+
+# File sistema (macOS/Windows)
+.DS_Store
+Thumbs.db
