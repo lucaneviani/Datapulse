@@ -29,7 +29,9 @@ def analyze(data: dict):
     session = Session()
     try:
         result = session.execute(text(sql)).mappings().all()
-        return {"sql": sql, "results": result, "insights": "AI-generated analysis"}
+        # Converti risultati in lista di dict per JSON serialization
+        data_list = [dict(row) for row in result]
+        return {"generated_sql": sql, "data": data_list}
     except Exception as e:
         return {"error": f"Query execution failed: {str(e)}", "generated_sql": sql}
     finally:
