@@ -8,3 +8,5 @@ plotly
 python-dotenv
 requests
 google-generativeai
+pytest
+httpx
