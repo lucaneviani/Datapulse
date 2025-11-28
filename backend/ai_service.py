@@ -496,3 +496,99 @@ def clear_cache():
     """Svuota la cache SQL."""
     sql_cache.cache.clear()
     logger.info("Cache SQL svuotata")
+
+
+# ============================================================================
+# GENERAZIONE SQL PER DATABASE DINAMICI (UPLOAD UTENTE)
+# ============================================================================
+
+def generate_sql_dynamic(question: str, schema: str, tables: list) -> str:
+    """
+    Genera una query SQL per database personalizzati caricati dall'utente.
+    
+    A differenza di generate_sql(), questa funzione:
+    - Usa lo schema estratto dinamicamente dal database dell'utente
+    - Non applica whitelist tabelle fissa
+    - Adatta il prompt per schema sconosciuti
+    
+    Args:
+        question: Domanda in linguaggio naturale
+        schema: Schema del database in formato testuale
+        tables: Lista delle tabelle disponibili
+    
+    Returns:
+        Query SQL generata
+    """
+    if not question or not question.strip():
+        return "Error: Domanda vuota"
+    
+    # Controlla cache
+    cached_sql = sql_cache.get(question, schema)
+    if cached_sql:
+        return cached_sql
+    
+    # Controlla rate limiting
+    if not rate_limiter.can_proceed():
+        wait_time = rate_limiter.get_wait_time()
+        return f"Error: Troppe richieste. Riprova tra {int(wait_time)} secondi."
+    
+    # Verifica API configurata
+    if not model:
+        return "Error: API key non configurata. Imposta GOOGLE_API_KEY nel file .env"
+    
+    tables_list = ", ".join(tables)
+    
+    # Prompt ottimizzato per database dinamici
+    prompt = f"""You are an expert SQL query generator. Generate a valid, safe SELECT SQL query based on the user's question.
+
+STRICT RULES:
+1. Generate ONLY SELECT queries - never INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE
+2. Use ONLY tables and columns from the schema below
+3. Use proper SQLite syntax
+4. Return ONLY the SQL query, no explanations or markdown
+5. Use table aliases for readability when appropriate
+6. Always use explicit JOIN syntax when joining tables
+7. If you're unsure about the exact column names, use the ones from the schema
+
+AVAILABLE TABLES: {tables_list}
+
+DATABASE SCHEMA:
+{schema}
+
+EXAMPLES:
+- If asked "how many records" or "count", use: SELECT COUNT(*) as count FROM table_name;
+- If asked "show all" or "list", use: SELECT * FROM table_name LIMIT 100;
+- If asked about totals or sums, use: SELECT SUM(column) as total FROM table_name;
+- If asked about averages, use: SELECT AVG(column) as average FROM table_name;
+- For grouping data, use: SELECT column, COUNT(*) FROM table_name GROUP BY column;
+
+NOW GENERATE SQL FOR:
+Question: "{question}"
+SQL:"""
+
+    try:
+        logger.info(f"Generazione SQL dinamico per: {question[:50]}...")
+        response = model.generate_content(prompt)
+        sql = response.text.strip()
+        
+        # Rimuovi markdown se presente
+        if sql.startswith("```sql"):
+            sql = sql[6:].strip()
+        if sql.startswith("```"):
+            sql = sql[3:].strip()
+        if sql.endswith("```"):
+            sql = sql[:-3].strip()
+        
+        # Rimuovi newline multipli
+        sql = " ".join(sql.split())
+        
+        # Validazione base (no check tabelle)
+        if validate_sql(sql, check_tables=False):
+            sql_cache.set(question, schema, sql)
+        
+        logger.info(f"SQL dinamico generato: {sql[:80]}...")
+        return sql
+        
+    except Exception as e:
+        logger.error(f"Errore generazione SQL dinamico: {str(e)}")
+        return f"Error: {str(e)}"

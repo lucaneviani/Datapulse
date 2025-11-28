@@ -2,6 +2,7 @@
 DataPulse Frontend - Streamlit Application
 ==========================================
 Professional dark-themed UI for AI-powered data analytics.
+Supports custom database uploads (CSV, Excel, SQLite).
 """
 
 import streamlit as st
@@ -310,6 +311,15 @@ if "last_df" not in st.session_state:
     st.session_state.last_df = None
 if "query_time" not in st.session_state:
     st.session_state.query_time = None
+# Session management for custom databases
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
+if "db_type" not in st.session_state:
+    st.session_state.db_type = "demo"
+if "db_tables" not in st.session_state:
+    st.session_state.db_tables = []
+if "db_schema" not in st.session_state:
+    st.session_state.db_schema = ""
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -324,11 +334,32 @@ def check_backend_health():
         return False
 
 
+def create_session():
+    """Create a new session with the backend."""
+    try:
+        response = requests.post(f"{BACKEND_URL}/api/session/create", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.session_id = data["session_id"]
+            st.session_state.db_type = data["db_type"]
+            st.session_state.db_tables = data["tables"]
+            return True
+    except:
+        pass
+    return False
+
+
 def send_query(question: str) -> dict:
     """Send query to backend API."""
     try:
+        # Use session endpoint if session exists
+        if st.session_state.session_id:
+            url = f"{BACKEND_URL}/api/session/{st.session_state.session_id}/analyze"
+        else:
+            url = API_ENDPOINT
+        
         response = requests.post(
-            API_ENDPOINT,
+            url,
             json={"question": question},
             timeout=30
         )
@@ -339,6 +370,58 @@ def send_query(question: str) -> dict:
         return {"error": "Timeout: il server non risponde."}
     except Exception as e:
         return {"error": f"Errore: {str(e)}"}
+
+
+def upload_files_to_backend(files, file_type="csv"):
+    """Upload files to backend and create custom database."""
+    if not st.session_state.session_id:
+        if not create_session():
+            return False, "Impossibile creare la sessione"
+    
+    try:
+        if file_type == "csv":
+            url = f"{BACKEND_URL}/api/session/{st.session_state.session_id}/upload/csv"
+            files_data = [("files", (f.name, f.getvalue(), "text/csv")) for f in files]
+        else:  # sqlite
+            url = f"{BACKEND_URL}/api/session/{st.session_state.session_id}/upload/sqlite"
+            f = files[0]
+            files_data = {"file": (f.name, f.getvalue(), "application/octet-stream")}
+        
+        response = requests.post(url, files=files_data, timeout=60)
+        
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.db_type = data["db_type"]
+            st.session_state.db_tables = data["tables"]
+            st.session_state.db_schema = data.get("schema", "")
+            return True, data["message"]
+        else:
+            error_msg = response.json().get("detail", "Errore sconosciuto")
+            return False, error_msg
+            
+    except Exception as e:
+        return False, f"Errore upload: {str(e)}"
+
+
+def reset_to_demo():
+    """Reset session to demo database."""
+    if not st.session_state.session_id:
+        return True, "Già in modalità demo"
+    
+    try:
+        url = f"{BACKEND_URL}/api/session/{st.session_state.session_id}/reset"
+        response = requests.post(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.db_type = data["db_type"]
+            st.session_state.db_tables = data["tables"]
+            st.session_state.db_schema = ""
+            return True, data["message"]
+        else:
+            return False, "Errore nel reset"
+    except Exception as e:
+        return False, f"Errore: {str(e)}"
 
 
 def add_to_history(question: str, success: bool):
@@ -512,6 +595,111 @@ with st.sidebar:
     """
     st.markdown(status_html, unsafe_allow_html=True)
     
+    # Database Status
+    db_type = st.session_state.db_type
+    if db_type == "custom":
+        st.markdown("""
+            <div style="margin-top: 8px; background: rgba(139, 92, 246, 0.15); color: #8b5cf6; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block;">
+                📊 Database Personalizzato
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <div style="margin-top: 8px; background: rgba(59, 130, 246, 0.15); color: #3b82f6; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block;">
+                📁 Database Demo
+            </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # =========================================================================
+    # DATA UPLOAD SECTION
+    # =========================================================================
+    
+    st.markdown("#### 📤 Carica i tuoi dati")
+    
+    # Initialize session if needed
+    if is_online and not st.session_state.session_id:
+        create_session()
+    
+    upload_tab1, upload_tab2 = st.tabs(["CSV/Excel", "SQLite"])
+    
+    with upload_tab1:
+        st.caption("Carica uno o più file CSV o Excel")
+        csv_files = st.file_uploader(
+            "Seleziona file",
+            type=["csv", "xlsx", "xls"],
+            accept_multiple_files=True,
+            key="csv_uploader",
+            label_visibility="collapsed"
+        )
+        
+        if csv_files:
+            st.caption(f"📁 {len(csv_files)} file selezionati")
+            if st.button("📤 Carica CSV/Excel", use_container_width=True, key="upload_csv_btn"):
+                with st.spinner("Caricamento in corso..."):
+                    success, message = upload_files_to_backend(csv_files, "csv")
+                
+                if success:
+                    st.success(f"✅ {message}")
+                    # Clear previous results
+                    st.session_state.last_result = None
+                    st.session_state.last_df = None
+                    st.session_state.last_sql = None
+                    st.session_state.history = []
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(f"❌ {message}")
+    
+    with upload_tab2:
+        st.caption("Carica un database SQLite esistente")
+        sqlite_file = st.file_uploader(
+            "Seleziona file SQLite",
+            type=["db", "sqlite", "sqlite3"],
+            accept_multiple_files=False,
+            key="sqlite_uploader",
+            label_visibility="collapsed"
+        )
+        
+        if sqlite_file:
+            st.caption(f"📁 {sqlite_file.name}")
+            if st.button("📤 Carica SQLite", use_container_width=True, key="upload_sqlite_btn"):
+                with st.spinner("Caricamento in corso..."):
+                    success, message = upload_files_to_backend([sqlite_file], "sqlite")
+                
+                if success:
+                    st.success(f"✅ {message}")
+                    # Clear previous results
+                    st.session_state.last_result = None
+                    st.session_state.last_df = None
+                    st.session_state.last_sql = None
+                    st.session_state.history = []
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(f"❌ {message}")
+    
+    # Reset to demo button
+    if st.session_state.db_type == "custom":
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Torna al database demo", use_container_width=True, key="reset_demo_btn"):
+            with st.spinner("Reset in corso..."):
+                success, message = reset_to_demo()
+            
+            if success:
+                st.success("✅ Database resettato")
+                st.session_state.last_result = None
+                st.session_state.last_df = None
+                st.session_state.last_sql = None
+                st.session_state.history = []
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error(f"❌ {message}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("---")
     st.markdown("<br>", unsafe_allow_html=True)
     
     # History Section
@@ -562,19 +750,27 @@ with st.sidebar:
     
     # Database Schema
     with st.expander("📊 Schema Database"):
-        st.markdown("""
-        **customers**  
-        `id` `name` `segment` `country` `city` `state` `region`
+        if st.session_state.db_type == "custom" and st.session_state.db_schema:
+            st.markdown("**📊 Database Personalizzato**")
+            st.code(st.session_state.db_schema, language=None)
+        else:
+            st.markdown("""
+**customers**  
+`id` `name` `segment` `country` `city` `state` `region`
+
+**products**  
+`id` `name` `category` `sub_category`
+
+**orders**  
+`id` `customer_id` `order_date` `ship_date` `total`
+
+**order_items**  
+`order_id` `product_id` `quantity` `sales` `profit`
+            """)
         
-        **products**  
-        `id` `name` `category` `sub_category`
-        
-        **orders**  
-        `id` `customer_id` `order_date` `ship_date` `total`
-        
-        **order_items**  
-        `order_id` `product_id` `quantity` `sales` `profit`
-        """)
+        if st.session_state.db_tables:
+            st.markdown("---")
+            st.markdown(f"**Tabelle disponibili:** {', '.join(st.session_state.db_tables)}")
 
 # =============================================================================
 # MAIN CONTENT
@@ -582,13 +778,19 @@ with st.sidebar:
 
 # Hero Section (only when no results)
 if st.session_state.last_result is None:
-    st.markdown("""
+    # Different hero based on database type
+    if st.session_state.db_type == "custom":
+        hero_subtitle = "Interroga il tuo database personalizzato in linguaggio naturale."
+    else:
+        hero_subtitle = "Interroga i tuoi dati in linguaggio naturale.<br>L'AI genera query SQL e visualizzazioni automatiche."
+    
+    st.markdown(f"""
         <div style="text-align: center; padding: 60px 20px; margin-bottom: 32px;">
             <h1 style="font-size: 48px; font-weight: 700; margin-bottom: 16px; background: linear-gradient(135deg, #ffffff, #9ca3af); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
                 DataPulse
             </h1>
             <p style="font-size: 18px; color: #9ca3af; max-width: 500px; margin: 0 auto; line-height: 1.6;">
-                Interroga i tuoi dati in linguaggio naturale.<br>L'AI genera query SQL e visualizzazioni automatiche.
+                {hero_subtitle}
             </p>
         </div>
     """, unsafe_allow_html=True)
@@ -599,9 +801,10 @@ st.markdown("### 💬 Fai una domanda")
 col1, col2 = st.columns([5, 1])
 
 with col1:
+    placeholder_text = "Es: Quanti record ci sono nella tabella?" if st.session_state.db_type == "custom" else "Es: Qual è il fatturato totale per regione?"
     question = st.text_input(
         "query",
-        placeholder="Es: Qual è il fatturato totale per regione?",
+        placeholder=placeholder_text,
         label_visibility="collapsed"
     )
 
@@ -613,12 +816,22 @@ if st.session_state.last_result is None:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("##### 💡 Suggerimenti")
     
-    suggestions = [
-        ("📊 Totale Vendite", "Qual è il totale delle vendite?"),
-        ("🌍 Per Regione", "Mostra il fatturato per regione"),
-        ("🏆 Top Prodotti", "Quali sono i 5 prodotti più venduti?"),
-        ("📈 Ordini", "Quanti ordini ci sono in totale?")
-    ]
+    # Different suggestions based on database type
+    if st.session_state.db_type == "custom" and st.session_state.db_tables:
+        first_table = st.session_state.db_tables[0] if st.session_state.db_tables else "table"
+        suggestions = [
+            ("📊 Conta Record", f"Quanti record ci sono in {first_table}?"),
+            ("📋 Mostra Dati", f"Mostra i primi 10 record di {first_table}"),
+            ("🔍 Struttura", f"Quali colonne ha {first_table}?"),
+            ("📈 Statistiche", f"Mostra le statistiche di {first_table}")
+        ]
+    else:
+        suggestions = [
+            ("📊 Totale Vendite", "Qual è il totale delle vendite?"),
+            ("🌍 Per Regione", "Mostra il fatturato per regione"),
+            ("🏆 Top Prodotti", "Quali sono i 5 prodotti più venduti?"),
+            ("📈 Ordini", "Quanti ordini ci sono in totale?")
+        ]
     
     cols = st.columns(4)
     for i, (label, query) in enumerate(suggestions):

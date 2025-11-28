@@ -10,3 +10,5 @@ requests
 google-generativeai
 pytest
 httpx
+python-multipart
+openpyxl
