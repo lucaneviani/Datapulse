@@ -1,7 +1,39 @@
 """
 DataPulse AI Service
-=====================
-Servizio per generazione SQL tramite AI con caching e rate limiting.
+====================
+
+Servizio core per la generazione di query SQL tramite intelligenza artificiale,
+con ottimizzazioni per performance e sicurezza in produzione.
+
+Funzionalità Principali:
+------------------------
+- **Generazione SQL**: Converte domande in linguaggio naturale in query SQL
+  usando Google Gemini AI con prompt engineering ottimizzato
+- **Caching intelligente**: Cache LRU con TTL per ridurre chiamate API e costi
+- **Rate limiting**: Protezione contro abusi con finestra temporale configurabile
+- **Validazione sicurezza**: Whitelist tabelle/colonne, blocco SQL injection
+
+Componenti:
+-----------
+- SQLCache: Cache in memoria per query SQL generate (max 100 entries, 1h TTL)
+- RateLimiter: Limita richieste API (30 req/min di default)
+- generate_sql(): Funzione principale per generazione SQL
+- validate_sql(): Validazione strutturale delle query
+- validate_sql_strict(): Validazione sicurezza avanzata
+
+Configurazione:
+---------------
+Richiede la variabile d'ambiente GOOGLE_API_KEY nel file .env
+
+Esempio d'uso:
+--------------
+>>> from ai_service import generate_sql
+>>> sql = generate_sql("Mostra i top 10 clienti per vendite", schema_info)
+>>> print(sql)
+'SELECT c.name, SUM(oi.sales) as total FROM customers c ...'
+
+Author: DataPulse Team
+License: MIT
 """
 
 import google.generativeai as genai

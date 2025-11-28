@@ -1,7 +1,18 @@
 """
 DataPulse Backend - FastAPI Application
 ========================================
-API principale per l'analisi dati con generazione SQL tramite AI.
+
+API REST per l'analisi dati aziendali con generazione SQL tramite AI.
+
+Questo modulo fornisce:
+- Endpoint /api/analyze per interrogare dati con linguaggio naturale
+- Integrazione con Google Gemini per generazione SQL
+- Validazione sicurezza SQL con whitelist tabelle
+- Cache e rate limiting per ottimizzazione performance
+
+Author: Luca Neviani
+Version: 1.0.0
+License: MIT
 """
 
 import logging
@@ -12,34 +23,79 @@ from typing import Optional, List, Dict, Any
 from backend.models import create_database
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from backend.ai_service import generate_sql, validate_sql, validate_sql_strict, get_cache_stats, clear_cache, sanitize_input, ALLOWED_TABLES
+from backend.ai_service import (
+    generate_sql, validate_sql, validate_sql_strict, 
+    get_cache_stats, clear_cache, sanitize_input, ALLOWED_TABLES
+)
 
-# Configurazione Logging
+# ============================================================================
+# CONFIGURAZIONE LOGGING
+# ============================================================================
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("datapulse")
 
-# Modello Request/Response per validazione
+# ============================================================================
+# MODELLI PYDANTIC (Request/Response)
+# ============================================================================
+
 class AnalyzeRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=500, description="Domanda in linguaggio naturale")
+    """Schema richiesta per endpoint /api/analyze."""
+    question: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=500, 
+        description="Domanda in linguaggio naturale (es. 'Quanti clienti ci sono?')",
+        examples=["How many customers are there?", "What are the total sales by region?"]
+    )
 
 class AnalyzeResponse(BaseModel):
-    generated_sql: str
-    data: List[Dict[str, Any]]
-    row_count: int = 0
+    """Schema risposta successo per endpoint /api/analyze."""
+    generated_sql: str = Field(..., description="Query SQL generata dall'AI")
+    data: List[Dict[str, Any]] = Field(..., description="Risultati della query")
+    row_count: int = Field(0, description="Numero di righe restituite")
 
 class ErrorResponse(BaseModel):
-    error: str
-    generated_sql: Optional[str] = None
-    suggestion: Optional[str] = None
+    """Schema risposta errore."""
+    error: str = Field(..., description="Messaggio di errore")
+    generated_sql: Optional[str] = Field(None, description="SQL generato (se disponibile)")
+    suggestion: Optional[str] = Field(None, description="Suggerimento per risolvere l'errore")
 
-# Inizializzazione App
+# ============================================================================
+# INIZIALIZZAZIONE APP FASTAPI
+# ============================================================================
+
 app = FastAPI(
     title="DataPulse API",
-    description="API per analisi dati aziendali con generazione SQL tramite AI",
-    version="1.0.0"
+    description="""
+## 📊 DataPulse - AI-Powered Business Intelligence
+
+API REST per interrogare database SQL usando linguaggio naturale.
+
+### Funzionalità:
+- **Generazione SQL con AI** - Converti domande in query SQL sicure
+- **Validazione Sicurezza** - Whitelist tabelle, blocco injection
+- **Cache Intelligente** - Ottimizzazione performance
+- **Rate Limiting** - Protezione API key
+
+### Tabelle Disponibili:
+- `customers` - Anagrafica clienti
+- `products` - Catalogo prodotti  
+- `orders` - Ordini
+- `order_items` - Dettaglio ordini
+    """,
+    version="1.0.0",
+    contact={
+        "name": "Luca Neviani",
+        "url": "https://github.com/lucaneviani/Datapulse"
+    },
+    license_info={
+        "name": "MIT",
+        "url": "https://opensource.org/licenses/MIT"
+    }
 )
 
 # CORS Middleware per frontend
@@ -51,11 +107,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Connessione DB
+# ============================================================================
+# CONFIGURAZIONE DATABASE
+# ============================================================================
+
 engine = create_database()
 Session = sessionmaker(bind=engine)
 
-# Schema DB per AI
+# Schema DB per AI (formato semplificato per prompt)
 db_schema = """
 customers(id, name, segment, country, city, state, postal_code, region)
 products(id, name, category, sub_category)
@@ -63,44 +122,89 @@ orders(id, customer_id, order_date, ship_date, ship_mode, total)
 order_items(id, order_id, product_id, quantity, sales, discount, profit)
 """
 
-# Limite massimo righe restituite
+# Limite massimo righe restituite (protezione memoria)
 MAX_ROWS = 1000
 
 
-@app.get("/health")
+# ============================================================================
+# ENDPOINTS API
+# ============================================================================
+
+@app.get("/health", tags=["System"])
 def health_check():
-    """Endpoint per verificare lo stato del server."""
-    return {"status": "healthy", "service": "DataPulse API"}
+    """
+    Health check del server.
+    
+    Verifica che il servizio sia attivo e funzionante.
+    
+    Returns:
+        dict: Status del servizio
+    """
+    return {"status": "healthy", "service": "DataPulse API", "version": "1.0.0"}
 
 
-@app.get("/api/cache/stats")
+@app.get("/api/cache/stats", tags=["Cache"])
 def cache_stats():
-    """Restituisce statistiche sulla cache SQL."""
+    """
+    Statistiche cache SQL.
+    
+    Restituisce informazioni sulla cache delle query SQL generate.
+    
+    Returns:
+        dict: size, max_size, ttl_seconds
+    """
     return get_cache_stats()
 
 
-@app.post("/api/cache/clear")
+@app.post("/api/cache/clear", tags=["Cache"])
 def cache_clear():
-    """Svuota la cache SQL."""
+    """
+    Svuota la cache SQL.
+    
+    Rimuove tutte le query memorizzate nella cache.
+    
+    Returns:
+        dict: Messaggio di conferma
+    """
     clear_cache()
     return {"message": "Cache svuotata con successo"}
 
 
-@app.get("/api/schema/tables")
+@app.get("/api/schema/tables", tags=["Schema"])
 def get_allowed_tables():
-    """Restituisce la lista delle tabelle permesse."""
+    """
+    Lista tabelle permesse.
+    
+    Restituisce l'elenco delle tabelle accessibili tramite l'API.
+    
+    Returns:
+        dict: Lista delle tabelle nella whitelist
+    """
     return {"allowed_tables": list(ALLOWED_TABLES)}
 
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", tags=["Analysis"], response_model=None)
 def analyze(data: dict):
     """
-    Analizza una domanda in linguaggio naturale e restituisce dati dal database.
+    Analizza una domanda in linguaggio naturale.
     
-    - Sanitizza l'input dell'utente
-    - Genera SQL tramite AI (Gemini)
-    - Valida la sicurezza della query con whitelist tabelle
-    - Esegue la query e restituisce i risultati
+    Questo endpoint:
+    1. Sanitizza l'input dell'utente (protezione XSS/injection)
+    2. Genera SQL tramite AI (Google Gemini)
+    3. Valida la sicurezza della query (whitelist tabelle, blocco operazioni pericolose)
+    4. Esegue la query sul database
+    5. Restituisce i risultati in formato JSON
+    
+    Args:
+        data: dict con chiave "question" contenente la domanda
+    
+    Returns:
+        - Successo: {"generated_sql": str, "data": list, "row_count": int}
+        - Errore: {"error": str, "generated_sql": str|None, "suggestion": str|None}
+    
+    Examples:
+        >>> {"question": "How many customers are there?"}
+        {"generated_sql": "SELECT COUNT(*) FROM customers;", "data": [{"COUNT(*)": 793}], "row_count": 1}
     """
     raw_question = data.get("question", "")
     
