@@ -122,6 +122,89 @@ class RateLimiter:
 rate_limiter = RateLimiter(max_requests=30, window_seconds=60)
 
 # ============================================================================
+# WHITELIST TABELLE E COLONNE (SICUREZZA)
+# ============================================================================
+
+# Tabelle permesse nel database
+ALLOWED_TABLES = {
+    "customers", "products", "orders", "order_items"
+}
+
+# Colonne permesse per tabella
+ALLOWED_COLUMNS = {
+    "customers": {"id", "name", "segment", "country", "city", "state", "postal_code", "region"},
+    "products": {"id", "name", "category", "sub_category"},
+    "orders": {"id", "customer_id", "order_date", "ship_date", "ship_mode", "total"},
+    "order_items": {"id", "order_id", "product_id", "quantity", "sales", "discount", "profit"}
+}
+
+# Alias comuni per tabelle
+TABLE_ALIASES = {
+    "c": "customers",
+    "p": "products", 
+    "o": "orders",
+    "oi": "order_items"
+}
+
+# ============================================================================
+# SANITIZZAZIONE INPUT
+# ============================================================================
+
+def sanitize_input(text: str) -> str:
+    """
+    Sanitizza l'input dell'utente rimuovendo caratteri potenzialmente pericolosi.
+    
+    Args:
+        text: Testo da sanitizzare
+    
+    Returns:
+        Testo sanitizzato
+    """
+    if not text:
+        return ""
+    
+    # Rimuovi caratteri di controllo
+    import re
+    text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
+    
+    # Rimuovi tag HTML/script
+    text = re.sub(r'<[^>]*>', '', text)
+    
+    # Limita caratteri speciali SQL pericolosi all'inizio/fine
+    text = text.strip(";'\"")
+    
+    return text.strip()
+
+
+def validate_tables_in_sql(sql: str) -> bool:
+    """
+    Verifica che la query SQL usi solo tabelle permesse.
+    
+    Args:
+        sql: Query SQL da verificare
+    
+    Returns:
+        True se tutte le tabelle sono permesse, False altrimenti
+    """
+    import re
+    sql_upper = sql.upper()
+    
+    # Pattern per trovare nomi tabelle dopo FROM e JOIN
+    # Cattura: FROM table, JOIN table, FROM table alias
+    table_pattern = r'(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+    matches = re.findall(table_pattern, sql_upper)
+    
+    for table in matches:
+        table_lower = table.lower()
+        # Verifica se è una tabella o un alias permesso
+        if table_lower not in ALLOWED_TABLES and table_lower not in TABLE_ALIASES:
+            logger.warning(f"Tabella non permessa rilevata: {table}")
+            return False
+    
+    return True
+
+
+# ============================================================================
 # SCHEMA DESCRITTIVO PER AI
 # ============================================================================
 
@@ -274,12 +357,13 @@ SQL:"""
         return f"Error: {str(e)}"
 
 
-def validate_sql(sql: str) -> bool:
+def validate_sql(sql: str, check_tables: bool = True) -> bool:
     """
     Valida che la query SQL sia sicura (solo SELECT, no operazioni pericolose).
     
     Args:
         sql: Query SQL da validare
+        check_tables: Se True, verifica anche che le tabelle siano nella whitelist
     
     Returns:
         True se la query è sicura, False altrimenti
@@ -298,7 +382,8 @@ def validate_sql(sql: str) -> bool:
         "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", 
         "CREATE", "TRUNCATE", "EXEC", "EXECUTE", 
         "GRANT", "REVOKE", "COMMIT", "ROLLBACK",
-        "ATTACH", "DETACH"
+        "ATTACH", "DETACH", "PRAGMA", "VACUUM",
+        "REINDEX", "ANALYZE"  # SQLite specific
     ]
     
     for word in forbidden:
@@ -314,7 +399,56 @@ def validate_sql(sql: str) -> bool:
     if sql.count(";") > 1:
         return False
     
+    # Blocca UNION (possibile injection per leggere altre tabelle)
+    # Nota: UNION legittimo è raro in questo contesto
+    if " UNION " in sql_upper:
+        logger.warning("UNION rilevato e bloccato per sicurezza")
+        return False
+    
+    # Verifica whitelist tabelle
+    if check_tables and not validate_tables_in_sql(sql):
+        return False
+    
     return True
+
+
+def validate_sql_strict(sql: str) -> tuple[bool, str]:
+    """
+    Validazione SQL rigorosa con messaggio di errore dettagliato.
+    
+    Args:
+        sql: Query SQL da validare
+    
+    Returns:
+        Tupla (is_valid, error_message)
+    """
+    if not sql or not isinstance(sql, str):
+        return False, "Query SQL vuota o non valida"
+    
+    sql_upper = sql.upper().strip()
+    
+    if not sql_upper.startswith("SELECT"):
+        return False, "Solo query SELECT sono permesse"
+    
+    # Controlli specifici con messaggi
+    if "--" in sql or "/*" in sql:
+        return False, "Commenti SQL non permessi"
+    
+    if sql.count(";") > 1:
+        return False, "Query multiple non permesse"
+    
+    if " UNION " in sql_upper:
+        return False, "UNION non permesso per sicurezza"
+    
+    forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"]
+    for word in forbidden:
+        if f" {word} " in f" {sql_upper} " or sql_upper.startswith(f"{word} "):
+            return False, f"Operazione {word} non permessa"
+    
+    if not validate_tables_in_sql(sql):
+        return False, "Query contiene tabelle non permesse"
+    
+    return True, "OK"
 
 
 def get_cache_stats() -> dict:

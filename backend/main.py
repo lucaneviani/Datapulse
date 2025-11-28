@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 from backend.models import create_database
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from backend.ai_service import generate_sql, validate_sql, get_cache_stats, clear_cache
+from backend.ai_service import generate_sql, validate_sql, validate_sql_strict, get_cache_stats, clear_cache, sanitize_input, ALLOWED_TABLES
 
 # Configurazione Logging
 logging.basicConfig(
@@ -86,16 +86,26 @@ def cache_clear():
     return {"message": "Cache svuotata con successo"}
 
 
+@app.get("/api/schema/tables")
+def get_allowed_tables():
+    """Restituisce la lista delle tabelle permesse."""
+    return {"allowed_tables": list(ALLOWED_TABLES)}
+
+
 @app.post("/api/analyze")
 def analyze(data: dict):
     """
     Analizza una domanda in linguaggio naturale e restituisce dati dal database.
     
+    - Sanitizza l'input dell'utente
     - Genera SQL tramite AI (Gemini)
-    - Valida la sicurezza della query
+    - Valida la sicurezza della query con whitelist tabelle
     - Esegue la query e restituisce i risultati
     """
-    question = data.get("question", "").strip()
+    raw_question = data.get("question", "")
+    
+    # Sanitizza input
+    question = sanitize_input(raw_question)
     
     # Validazione input
     if not question:
@@ -126,16 +136,17 @@ def analyze(data: dict):
             "suggestion": "Verifica che la chiave API sia configurata correttamente"
         }
     
-    # Valida sicurezza SQL
-    if not validate_sql(sql):
-        logger.warning(f"SQL non sicuro generato: {sql[:100]}")
+    # Valida sicurezza SQL con validazione strict
+    is_valid, error_msg = validate_sql_strict(sql)
+    if not is_valid:
+        logger.warning(f"SQL non sicuro generato: {sql[:100]} - Motivo: {error_msg}")
         return {
-            "error": "La query generata non è sicura o non è valida",
+            "error": f"La query generata non è sicura: {error_msg}",
             "generated_sql": sql,
             "suggestion": "Prova a riformulare la domanda in modo più specifico"
         }
     
-    logger.info(f"SQL generato: {sql[:100]}...")
+    logger.info(f"SQL generato e validato: {sql[:100]}...")
     
     # Esegui query
     session = Session()

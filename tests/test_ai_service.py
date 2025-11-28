@@ -11,7 +11,11 @@ import os
 # Aggiungi il path del progetto
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.ai_service import validate_sql, SQLCache, RateLimiter, get_cache_stats, clear_cache
+from backend.ai_service import (
+    validate_sql, validate_sql_strict, validate_tables_in_sql,
+    sanitize_input, SQLCache, RateLimiter, get_cache_stats, clear_cache,
+    ALLOWED_TABLES, ALLOWED_COLUMNS
+)
 
 
 class TestValidateSQL:
@@ -196,6 +200,117 @@ class TestCacheStats:
         clear_cache()
         stats = get_cache_stats()
         assert stats["size"] == 0
+
+
+class TestSanitizeInput:
+    """Test per la sanitizzazione input."""
+    
+    def test_sanitize_removes_html(self):
+        """Sanitize deve rimuovere tag HTML."""
+        result = sanitize_input("<script>alert('xss')</script>Question")
+        assert "<script>" not in result
+        assert "Question" in result
+    
+    def test_sanitize_removes_control_chars(self):
+        """Sanitize deve rimuovere caratteri di controllo."""
+        result = sanitize_input("Hello\x00World")
+        assert "\x00" not in result
+    
+    def test_sanitize_strips_sql_chars(self):
+        """Sanitize deve rimuovere caratteri SQL pericolosi all'inizio/fine."""
+        result = sanitize_input(";'SELECT * FROM users\"")
+        assert not result.startswith(";")
+        assert not result.endswith("\"")
+    
+    def test_sanitize_preserves_normal_text(self):
+        """Sanitize deve preservare testo normale."""
+        result = sanitize_input("How many customers are there?")
+        assert result == "How many customers are there?"
+    
+    def test_sanitize_empty_input(self):
+        """Sanitize deve gestire input vuoto."""
+        assert sanitize_input("") == ""
+        assert sanitize_input(None) == ""
+
+
+class TestTableWhitelist:
+    """Test per la whitelist delle tabelle."""
+    
+    def test_allowed_tables_exist(self):
+        """Verifica che le tabelle permesse siano definite."""
+        assert "customers" in ALLOWED_TABLES
+        assert "products" in ALLOWED_TABLES
+        assert "orders" in ALLOWED_TABLES
+        assert "order_items" in ALLOWED_TABLES
+    
+    def test_validate_tables_allowed(self):
+        """Query con tabelle permesse deve essere valida."""
+        sql = "SELECT * FROM customers"
+        assert validate_tables_in_sql(sql) == True
+        
+        sql = "SELECT * FROM customers c JOIN orders o ON c.id = o.customer_id"
+        assert validate_tables_in_sql(sql) == True
+    
+    def test_validate_tables_not_allowed(self):
+        """Query con tabelle non permesse deve essere rifiutata."""
+        sql = "SELECT * FROM users"
+        assert validate_tables_in_sql(sql) == False
+        
+        sql = "SELECT * FROM customers JOIN hackers ON 1=1"
+        assert validate_tables_in_sql(sql) == False
+    
+    def test_validate_tables_with_aliases(self):
+        """Query con alias di tabella deve essere valida."""
+        sql = "SELECT c.name FROM customers c"
+        assert validate_tables_in_sql(sql) == True
+
+
+class TestValidateSQLStrict:
+    """Test per la validazione SQL strict con messaggi."""
+    
+    def test_strict_valid_query(self):
+        """Query valida deve passare con messaggio OK."""
+        is_valid, msg = validate_sql_strict("SELECT * FROM customers")
+        assert is_valid == True
+        assert msg == "OK"
+    
+    def test_strict_empty_query(self):
+        """Query vuota deve fallire con messaggio appropriato."""
+        is_valid, msg = validate_sql_strict("")
+        assert is_valid == False
+        assert "vuota" in msg.lower() or "non valida" in msg.lower()
+    
+    def test_strict_non_select(self):
+        """Query non-SELECT deve fallire con messaggio appropriato."""
+        is_valid, msg = validate_sql_strict("INSERT INTO customers VALUES (1)")
+        assert is_valid == False
+        assert "SELECT" in msg
+    
+    def test_strict_union_blocked(self):
+        """UNION deve essere bloccato con messaggio."""
+        is_valid, msg = validate_sql_strict("SELECT * FROM customers UNION SELECT * FROM products")
+        assert is_valid == False
+        assert "UNION" in msg
+    
+    def test_strict_forbidden_tables(self):
+        """Tabelle non permesse devono essere bloccate."""
+        is_valid, msg = validate_sql_strict("SELECT * FROM secret_data")
+        assert is_valid == False
+        assert "tabelle" in msg.lower()
+
+
+class TestUnionBlocking:
+    """Test per il blocco di UNION (sicurezza aggiuntiva Fase 3)."""
+    
+    def test_union_blocked(self):
+        """UNION deve essere bloccato."""
+        sql = "SELECT * FROM customers UNION SELECT * FROM products"
+        assert validate_sql(sql, check_tables=False) == False
+    
+    def test_union_all_blocked(self):
+        """UNION ALL deve essere bloccato."""
+        sql = "SELECT * FROM customers UNION ALL SELECT * FROM products"
+        assert validate_sql(sql, check_tables=False) == False
 
 
 if __name__ == "__main__":
