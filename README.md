@@ -276,6 +276,6 @@ Questo progetto è distribuito sotto licenza MIT. Vedi il file [LICENSE](LICENSE
 
 <div align="center">
 
-Made with ❤️ using Python, FastAPI, and AI
+Made with ❤️ using visual studio code
 
 </div>
