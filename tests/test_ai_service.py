@@ -11,7 +11,7 @@ import os
 # Aggiungi il path del progetto
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.ai_service import validate_sql
+from backend.ai_service import validate_sql, SQLCache, RateLimiter, get_cache_stats, clear_cache
 
 
 class TestValidateSQL:
@@ -92,6 +92,11 @@ class TestValidateSQL:
         """Subquery SELECT deve essere valida."""
         sql = "SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders)"
         assert validate_sql(sql) == True
+    
+    def test_sql_comments_blocked(self):
+        """Commenti SQL devono essere bloccati (possibile injection)."""
+        assert validate_sql("SELECT * FROM customers -- malicious") == False
+        assert validate_sql("SELECT * FROM customers /* comment */") == False
 
 
 class TestValidateSQLEdgeCases:
@@ -118,6 +123,79 @@ class TestValidateSQLEdgeCases:
         """Messaggi di errore dall'AI non devono essere validi."""
         assert validate_sql("Error: API key not found") == False
         assert validate_sql("I cannot generate SQL for this question") == False
+
+
+class TestSQLCache:
+    """Test per il sistema di caching SQL."""
+    
+    def test_cache_set_and_get(self):
+        """Cache deve salvare e recuperare query."""
+        cache = SQLCache(max_size=10, ttl_seconds=3600)
+        cache.set("How many customers?", "schema", "SELECT COUNT(*) FROM customers")
+        result = cache.get("How many customers?", "schema")
+        assert result == "SELECT COUNT(*) FROM customers"
+    
+    def test_cache_miss(self):
+        """Cache miss deve restituire None."""
+        cache = SQLCache(max_size=10, ttl_seconds=3600)
+        result = cache.get("Unknown question", "schema")
+        assert result is None
+    
+    def test_cache_case_insensitive(self):
+        """Cache deve essere case-insensitive per le domande."""
+        cache = SQLCache(max_size=10, ttl_seconds=3600)
+        cache.set("How Many Customers?", "schema", "SELECT COUNT(*) FROM customers")
+        result = cache.get("how many customers?", "schema")
+        assert result == "SELECT COUNT(*) FROM customers"
+    
+    def test_cache_max_size(self):
+        """Cache deve rispettare la dimensione massima."""
+        cache = SQLCache(max_size=3, ttl_seconds=3600)
+        for i in range(5):
+            cache.set(f"Question {i}", "schema", f"SQL {i}")
+        assert len(cache.cache) <= 3
+
+
+class TestRateLimiter:
+    """Test per il rate limiter."""
+    
+    def test_rate_limiter_allows_requests(self):
+        """Rate limiter deve permettere richieste sotto il limite."""
+        limiter = RateLimiter(max_requests=5, window_seconds=60)
+        for _ in range(5):
+            assert limiter.can_proceed() == True
+    
+    def test_rate_limiter_blocks_excess(self):
+        """Rate limiter deve bloccare richieste oltre il limite."""
+        limiter = RateLimiter(max_requests=3, window_seconds=60)
+        for _ in range(3):
+            limiter.can_proceed()
+        assert limiter.can_proceed() == False
+    
+    def test_rate_limiter_wait_time(self):
+        """Rate limiter deve calcolare tempo di attesa."""
+        limiter = RateLimiter(max_requests=1, window_seconds=60)
+        limiter.can_proceed()
+        wait_time = limiter.get_wait_time()
+        assert wait_time > 0 and wait_time <= 60
+
+
+class TestCacheStats:
+    """Test per statistiche cache."""
+    
+    def test_get_cache_stats(self):
+        """get_cache_stats deve restituire dati validi."""
+        stats = get_cache_stats()
+        assert "size" in stats
+        assert "max_size" in stats
+        assert "ttl_seconds" in stats
+    
+    def test_clear_cache(self):
+        """clear_cache deve svuotare la cache."""
+        # Questo test verifica che la funzione non sollevi eccezioni
+        clear_cache()
+        stats = get_cache_stats()
+        assert stats["size"] == 0
 
 
 if __name__ == "__main__":

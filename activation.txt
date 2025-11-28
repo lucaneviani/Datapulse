@@ -1,0 +1,3 @@
+Venv: & ./venv/Scripts/Activate.ps1
+Backend: python -m uvicorn backend.main:app --reload
+Frontend: streamlit run frontend/app.py

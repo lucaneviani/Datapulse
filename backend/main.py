@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 from backend.models import create_database
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from backend.ai_service import generate_sql, validate_sql
+from backend.ai_service import generate_sql, validate_sql, get_cache_stats, clear_cache
 
 # Configurazione Logging
 logging.basicConfig(
@@ -71,6 +71,19 @@ MAX_ROWS = 1000
 def health_check():
     """Endpoint per verificare lo stato del server."""
     return {"status": "healthy", "service": "DataPulse API"}
+
+
+@app.get("/api/cache/stats")
+def cache_stats():
+    """Restituisce statistiche sulla cache SQL."""
+    return get_cache_stats()
+
+
+@app.post("/api/cache/clear")
+def cache_clear():
+    """Svuota la cache SQL."""
+    clear_cache()
+    return {"message": "Cache svuotata con successo"}
 
 
 @app.post("/api/analyze")
