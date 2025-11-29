@@ -3,6 +3,7 @@ DataPulse Frontend - Streamlit Application
 ==========================================
 Professional dark-themed UI for AI-powered data analytics.
 Supports custom database uploads (CSV, Excel, SQLite).
+Multi-language support (IT, EN, ES, FR, DE).
 """
 
 import streamlit as st
@@ -12,6 +13,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import time
 from datetime import datetime
+from backend.i18n import i18n, t, set_language, get_language, get_supported_languages, SUPPORTED_LANGUAGES
 
 # =============================================================================
 # PAGE CONFIGURATION
@@ -320,6 +322,18 @@ if "db_tables" not in st.session_state:
     st.session_state.db_tables = []
 if "db_schema" not in st.session_state:
     st.session_state.db_schema = ""
+# Authentication state
+if "auth_token" not in st.session_state:
+    st.session_state.auth_token = None
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "show_auth_modal" not in st.session_state:
+    st.session_state.show_auth_modal = False
+# Language state
+if "language" not in st.session_state:
+    st.session_state.language = "it"
+# Apply saved language
+set_language(st.session_state.language)
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -422,6 +436,114 @@ def reset_to_demo():
             return False, "Errore nel reset"
     except Exception as e:
         return False, f"Errore: {str(e)}"
+
+
+# =============================================================================
+# AUTHENTICATION FUNCTIONS
+# =============================================================================
+
+def login_user(username: str, password: str):
+    """Login user and get JWT token."""
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/api/auth/login",
+            json={"username": username, "password": password},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.auth_token = data["token"]
+            st.session_state.user = {
+                "id": data["user_id"],
+                "username": data["username"],
+                "email": data["email"]
+            }
+            return True, "Login effettuato con successo"
+        else:
+            detail = response.json().get("detail", "Credenziali non valide")
+            return False, detail
+    except Exception as e:
+        return False, f"Errore: {str(e)}"
+
+
+def register_user(username: str, email: str, password: str):
+    """Register new user."""
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/api/auth/register",
+            json={"username": username, "email": email, "password": password},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.auth_token = data["token"]
+            st.session_state.user = {
+                "id": data["user_id"],
+                "username": data["username"],
+                "email": data["email"]
+            }
+            return True, "Registrazione completata"
+        else:
+            detail = response.json().get("detail", "Errore nella registrazione")
+            return False, detail
+    except Exception as e:
+        return False, f"Errore: {str(e)}"
+
+
+def logout_user():
+    """Logout user."""
+    if st.session_state.auth_token:
+        try:
+            requests.post(
+                f"{BACKEND_URL}/api/auth/logout",
+                headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+                timeout=5
+            )
+        except:
+            pass
+    st.session_state.auth_token = None
+    st.session_state.user = None
+
+
+# =============================================================================
+# EXPORT FUNCTIONS
+# =============================================================================
+
+def export_to_format(data: list, format_type: str, title: str = "Report", query: str = None):
+    """Export data to specified format."""
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/api/export",
+            json={
+                "data": data,
+                "format": format_type,
+                "title": title,
+                "query": query
+            },
+            timeout=30
+        )
+        if response.status_code == 200:
+            return True, response.content
+        else:
+            return False, response.json().get("detail", "Errore export")
+    except Exception as e:
+        return False, str(e)
+
+
+def generate_dashboard(data: list, title: str = "Dashboard"):
+    """Generate automatic dashboard."""
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/api/dashboard/create",
+            json={"data": data, "title": title},
+            timeout=30
+        )
+        if response.status_code == 200:
+            return True, response.json()
+        else:
+            return False, response.json().get("detail", "Errore generazione dashboard")
+    except Exception as e:
+        return False, str(e)
 
 
 def add_to_history(question: str, success: bool):
@@ -571,26 +693,109 @@ def create_chart(df: pd.DataFrame, chart_type: str):
 # =============================================================================
 
 with st.sidebar:
+    # Language Selector at top
+    lang_options = {code: f"{info['flag']} {info['native']}" for code, info in SUPPORTED_LANGUAGES.items()}
+    selected_lang = st.selectbox(
+        "🌐",
+        options=list(lang_options.keys()),
+        format_func=lambda x: lang_options[x],
+        index=list(lang_options.keys()).index(st.session_state.language),
+        key="lang_selector",
+        label_visibility="collapsed"
+    )
+    if selected_lang != st.session_state.language:
+        st.session_state.language = selected_lang
+        set_language(selected_lang)
+        st.rerun()
+    
     # Logo & Brand
-    st.markdown("""
+    st.markdown(f"""
         <div style="display: flex; align-items: center; gap: 12px; padding: 16px 0; border-bottom: 1px solid #2a2a32; margin-bottom: 24px;">
             <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px;">⚡</div>
             <div>
-                <div style="font-size: 18px; font-weight: 700; color: #ffffff;">DataPulse</div>
-                <div style="font-size: 12px; color: #6b7280;">AI Analytics</div>
+                <div style="font-size: 18px; font-weight: 700; color: #ffffff;">{t('app_name')}</div>
+                <div style="font-size: 12px; color: #6b7280;">{t('app_tagline')}</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
     
+    # =========================================================================
+    # AUTHENTICATION SECTION
+    # =========================================================================
+    
+    if st.session_state.user:
+        # User logged in
+        st.markdown(f"""
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 32px; height: 32px; background: linear-gradient(135deg, #10b981, #3b82f6); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                        {st.session_state.user['username'][0].upper()}
+                    </div>
+                    <div>
+                        <div style="color: #ffffff; font-weight: 500; font-size: 14px;">{st.session_state.user['username']}</div>
+                        <div style="color: #6b7280; font-size: 11px;">{st.session_state.user['email']}</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button(f"🚪 {t('auth_logout')}", use_container_width=True, key="logout_btn"):
+            logout_user()
+            st.rerun()
+    else:
+        # Auth tabs
+        auth_tab1, auth_tab2 = st.tabs([f"🔐 {t('auth_login')}", f"📝 {t('auth_register')}"])
+        
+        with auth_tab1:
+            login_username = st.text_input(t('auth_username'), key="login_user", placeholder=t('auth_username'))
+            login_password = st.text_input(t('auth_password'), type="password", key="login_pass", placeholder=t('auth_password'))
+            
+            if st.button(t('auth_login_btn'), use_container_width=True, key="login_submit"):
+                if login_username and login_password:
+                    with st.spinner(t('auth_logging_in')):
+                        success, message = login_user(login_username, login_password)
+                    if success:
+                        st.success("✅ " + t('auth_login_success'))
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ " + message)
+                else:
+                    st.warning(t('auth_fill_all'))
+        
+        with auth_tab2:
+            reg_username = st.text_input(t('auth_username'), key="reg_user", placeholder=t('auth_username'))
+            reg_email = st.text_input(t('auth_email'), key="reg_email", placeholder=t('auth_email'))
+            reg_password = st.text_input(t('auth_password'), type="password", key="reg_pass", placeholder=t('auth_password_hint'))
+            
+            if st.button(t('auth_register_btn'), use_container_width=True, key="register_submit"):
+                if reg_username and reg_email and reg_password:
+                    if len(reg_password) < 6:
+                        st.warning(t('auth_password_short'))
+                    else:
+                        with st.spinner(t('auth_registering')):
+                            success, message = register_user(reg_username, reg_email, reg_password)
+                        if success:
+                            st.success("✅ " + t('auth_register_success'))
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ " + message)
+                else:
+                    st.warning(t('auth_fill_all'))
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("---")
+    
     # System Status
     is_online = check_backend_health()
-    status_html = """
+    status_html = f"""
         <div class="status-success">
-            <span>●</span> Sistema Online
+            <span>●</span> {t('status_online')}
         </div>
-    """ if is_online else """
+    """ if is_online else f"""
         <div class="status-error">
-            <span>●</span> Backend Offline
+            <span>●</span> {t('status_offline')}
         </div>
     """
     st.markdown(status_html, unsafe_allow_html=True)
@@ -598,15 +803,15 @@ with st.sidebar:
     # Database Status
     db_type = st.session_state.db_type
     if db_type == "custom":
-        st.markdown("""
+        st.markdown(f"""
             <div style="margin-top: 8px; background: rgba(139, 92, 246, 0.15); color: #8b5cf6; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block;">
-                📊 Database Personalizzato
+                📊 {t('status_custom_db')}
             </div>
         """, unsafe_allow_html=True)
     else:
-        st.markdown("""
+        st.markdown(f"""
             <div style="margin-top: 8px; background: rgba(59, 130, 246, 0.15); color: #3b82f6; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; display: inline-block;">
-                📁 Database Demo
+                📁 {t('status_demo_db')}
             </div>
         """, unsafe_allow_html=True)
     
@@ -616,18 +821,18 @@ with st.sidebar:
     # DATA UPLOAD SECTION
     # =========================================================================
     
-    st.markdown("#### 📤 Carica i tuoi dati")
+    st.markdown(f"#### 📤 {t('upload_title')}")
     
     # Initialize session if needed
     if is_online and not st.session_state.session_id:
         create_session()
     
-    upload_tab1, upload_tab2 = st.tabs(["CSV/Excel", "SQLite"])
+    upload_tab1, upload_tab2 = st.tabs([t('upload_csv_tab'), t('upload_sqlite_tab')])
     
     with upload_tab1:
-        st.caption("Carica uno o più file CSV o Excel")
+        st.caption(t('upload_csv_hint'))
         csv_files = st.file_uploader(
-            "Seleziona file",
+            t('upload_select_files'),
             type=["csv", "xlsx", "xls"],
             accept_multiple_files=True,
             key="csv_uploader",
@@ -635,13 +840,13 @@ with st.sidebar:
         )
         
         if csv_files:
-            st.caption(f"📁 {len(csv_files)} file selezionati")
-            if st.button("📤 Carica CSV/Excel", use_container_width=True, key="upload_csv_btn"):
-                with st.spinner("Caricamento in corso..."):
+            st.caption(f"📁 {len(csv_files)} {t('upload_files_selected')}")
+            if st.button(f"📤 {t('upload_btn_csv')}", use_container_width=True, key="upload_csv_btn"):
+                with st.spinner(t('upload_loading')):
                     success, message = upload_files_to_backend(csv_files, "csv")
                 
                 if success:
-                    st.success(f"✅ {message}")
+                    st.success(f"✅ {t('upload_success')}")
                     # Clear previous results
                     st.session_state.last_result = None
                     st.session_state.last_df = None
@@ -653,9 +858,9 @@ with st.sidebar:
                     st.error(f"❌ {message}")
     
     with upload_tab2:
-        st.caption("Carica un database SQLite esistente")
+        st.caption(t('upload_sqlite_hint'))
         sqlite_file = st.file_uploader(
-            "Seleziona file SQLite",
+            t('upload_select_files'),
             type=["db", "sqlite", "sqlite3"],
             accept_multiple_files=False,
             key="sqlite_uploader",
@@ -664,12 +869,12 @@ with st.sidebar:
         
         if sqlite_file:
             st.caption(f"📁 {sqlite_file.name}")
-            if st.button("📤 Carica SQLite", use_container_width=True, key="upload_sqlite_btn"):
-                with st.spinner("Caricamento in corso..."):
+            if st.button(f"📤 {t('upload_btn_sqlite')}", use_container_width=True, key="upload_sqlite_btn"):
+                with st.spinner(t('upload_loading')):
                     success, message = upload_files_to_backend([sqlite_file], "sqlite")
                 
                 if success:
-                    st.success(f"✅ {message}")
+                    st.success(f"✅ {t('upload_success')}")
                     # Clear previous results
                     st.session_state.last_result = None
                     st.session_state.last_df = None
@@ -683,12 +888,12 @@ with st.sidebar:
     # Reset to demo button
     if st.session_state.db_type == "custom":
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 Torna al database demo", use_container_width=True, key="reset_demo_btn"):
-            with st.spinner("Reset in corso..."):
+        if st.button(f"🔄 {t('upload_reset')}", use_container_width=True, key="reset_demo_btn"):
+            with st.spinner(t('upload_resetting')):
                 success, message = reset_to_demo()
             
             if success:
-                st.success("✅ Database resettato")
+                st.success(f"✅ {t('upload_reset_success')}")
                 st.session_state.last_result = None
                 st.session_state.last_df = None
                 st.session_state.last_sql = None
@@ -703,7 +908,7 @@ with st.sidebar:
     st.markdown("<br>", unsafe_allow_html=True)
     
     # History Section
-    st.markdown("#### 📋 Cronologia")
+    st.markdown(f"#### 📋 {t('history_title')}")
     
     if st.session_state.history:
         for item in st.session_state.history[:6]:
@@ -716,42 +921,82 @@ with st.sidebar:
             """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🗑️ Pulisci cronologia", use_container_width=True):
+        if st.button(f"🗑️ {t('history_clear')}", use_container_width=True):
             st.session_state.history = []
             st.session_state.last_result = None
             st.session_state.last_sql = None
             st.session_state.last_df = None
             st.rerun()
     else:
-        st.markdown("""
+        st.markdown(f"""
             <div style="text-align: center; padding: 24px; color: #6b7280;">
                 <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;">📋</div>
-                <div>Nessuna query eseguita</div>
+                <div>{t('history_empty')}</div>
             </div>
         """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Export Section
-    st.markdown("#### 📥 Esporta")
+    # Export Section - Advanced
+    st.markdown(f"#### 📥 {t('export_title')}")
     
     if st.session_state.last_df is not None and not st.session_state.last_df.empty:
+        export_format = st.selectbox(
+            t('export_format'),
+            ["CSV", "Excel", "PDF", "HTML"],
+            key="export_format",
+            label_visibility="collapsed"
+        )
+        
         col1, col2 = st.columns(2)
+        
+        # Quick CSV/JSON export
         with col1:
             csv = st.session_state.last_df.to_csv(index=False)
-            st.download_button("CSV", csv, "export.csv", "text/csv", use_container_width=True)
+            st.download_button("📄 CSV", csv, "export.csv", "text/csv", use_container_width=True)
         with col2:
             json_data = st.session_state.last_df.to_json(orient="records", indent=2)
-            st.download_button("JSON", json_data, "export.json", "application/json", use_container_width=True)
+            st.download_button("📋 JSON", json_data, "export.json", "application/json", use_container_width=True)
+        
+        # Advanced export button
+        if st.button(f"📊 {t('export_btn')} {export_format}", use_container_width=True, key="advanced_export"):
+            with st.spinner(f"{t('export_generating')} {export_format}..."):
+                data_list = st.session_state.last_df.to_dict(orient="records")
+                success, result = export_to_format(
+                    data=data_list,
+                    format_type=export_format.lower(),
+                    title="Report DataPulse",
+                    query=st.session_state.last_sql
+                )
+            
+            if success:
+                ext_map = {"csv": "csv", "excel": "xlsx", "pdf": "pdf", "html": "html"}
+                mime_map = {
+                    "csv": "text/csv",
+                    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "pdf": "application/pdf",
+                    "html": "text/html"
+                }
+                fmt = export_format.lower()
+                st.download_button(
+                    f"⬇️ {t('export_download')} {export_format}",
+                    result,
+                    f"report.{ext_map[fmt]}",
+                    mime_map[fmt],
+                    use_container_width=True,
+                    key="download_advanced"
+                )
+            else:
+                st.error(f"❌ {t('export_error')}: {result}")
     else:
-        st.caption("Esegui una query per abilitare l'export")
+        st.caption(t('export_run_query'))
     
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Database Schema
-    with st.expander("📊 Schema Database"):
+    with st.expander(f"📊 {t('schema_title')}"):
         if st.session_state.db_type == "custom" and st.session_state.db_schema:
-            st.markdown("**📊 Database Personalizzato**")
+            st.markdown(f"**📊 {t('schema_custom')}**")
             st.code(st.session_state.db_schema, language=None)
         else:
             st.markdown("""
@@ -770,7 +1015,7 @@ with st.sidebar:
         
         if st.session_state.db_tables:
             st.markdown("---")
-            st.markdown(f"**Tabelle disponibili:** {', '.join(st.session_state.db_tables)}")
+            st.markdown(f"**{t('schema_tables')}:** {', '.join(st.session_state.db_tables)}")
 
 # =============================================================================
 # MAIN CONTENT
@@ -780,14 +1025,14 @@ with st.sidebar:
 if st.session_state.last_result is None:
     # Different hero based on database type
     if st.session_state.db_type == "custom":
-        hero_subtitle = "Interroga il tuo database personalizzato in linguaggio naturale."
+        hero_subtitle = t('app_description_custom')
     else:
-        hero_subtitle = "Interroga i tuoi dati in linguaggio naturale.<br>L'AI genera query SQL e visualizzazioni automatiche."
+        hero_subtitle = t('app_description')
     
     st.markdown(f"""
         <div style="text-align: center; padding: 60px 20px; margin-bottom: 32px;">
-            <h1 style="font-size: 48px; font-weight: 700; margin-bottom: 16px; background: linear-gradient(135deg, #ffffff, #9ca3af); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                DataPulse
+            <h1 style="font-size: 48px; font-weight: 700; margin-bottom: 16px; color: #3b82f6;">
+                ⚡ DataPulse
             </h1>
             <p style="font-size: 18px; color: #9ca3af; max-width: 500px; margin: 0 auto; line-height: 1.6;">
                 {hero_subtitle}
@@ -796,12 +1041,12 @@ if st.session_state.last_result is None:
     """, unsafe_allow_html=True)
 
 # Query Input Section
-st.markdown("### 💬 Fai una domanda")
+st.markdown(f"### 💬 {t('query_title')}")
 
 col1, col2 = st.columns([5, 1])
 
 with col1:
-    placeholder_text = "Es: Quanti record ci sono nella tabella?" if st.session_state.db_type == "custom" else "Es: Qual è il fatturato totale per regione?"
+    placeholder_text = t('query_placeholder_custom') if st.session_state.db_type == "custom" else t('query_placeholder')
     question = st.text_input(
         "query",
         placeholder=placeholder_text,
@@ -809,28 +1054,28 @@ with col1:
     )
 
 with col2:
-    submit = st.button("Analizza", type="primary", use_container_width=True)
+    submit = st.button(t('query_btn'), type="primary", use_container_width=True)
 
 # Quick suggestions (only when no results)
 if st.session_state.last_result is None:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("##### 💡 Suggerimenti")
+    st.markdown(f"##### 💡 {t('suggestions_title')}")
     
     # Different suggestions based on database type
     if st.session_state.db_type == "custom" and st.session_state.db_tables:
         first_table = st.session_state.db_tables[0] if st.session_state.db_tables else "table"
         suggestions = [
-            ("📊 Conta Record", f"Quanti record ci sono in {first_table}?"),
-            ("📋 Mostra Dati", f"Mostra i primi 10 record di {first_table}"),
-            ("🔍 Struttura", f"Quali colonne ha {first_table}?"),
-            ("📈 Statistiche", f"Mostra le statistiche di {first_table}")
+            (f"📊 {t('sug_count_records')}", f"Quanti record ci sono in {first_table}?"),
+            (f"📋 {t('sug_show_data')}", f"Mostra i primi 10 record di {first_table}"),
+            (f"🔍 {t('sug_structure')}", f"Quali colonne ha {first_table}?"),
+            (f"📈 {t('sug_statistics')}", f"Mostra le statistiche di {first_table}")
         ]
     else:
         suggestions = [
-            ("📊 Totale Vendite", "Qual è il totale delle vendite?"),
-            ("🌍 Per Regione", "Mostra il fatturato per regione"),
-            ("🏆 Top Prodotti", "Quali sono i 5 prodotti più venduti?"),
-            ("📈 Ordini", "Quanti ordini ci sono in totale?")
+            (f"📊 {t('sug_total_sales')}", "Qual è il totale delle vendite?"),
+            (f"🌍 {t('sug_by_region')}", "Mostra il fatturato per regione"),
+            (f"🏆 {t('sug_top_products')}", "Quali sono i 5 prodotti più venduti?"),
+            (f"📈 {t('sug_orders')}", "Quanti ordini ci sono in totale?")
         ]
     
     cols = st.columns(4)
@@ -852,11 +1097,11 @@ if "_pending_query" in st.session_state:
 
 if submit and question:
     if not question.strip():
-        st.warning("⚠️ Inserisci una domanda valida")
+        st.warning(f"⚠️ {t('query_empty')}")
     elif len(question) < 5:
-        st.warning("⚠️ La domanda è troppo corta")
+        st.warning(f"⚠️ {t('query_too_short')}")
     else:
-        with st.spinner("⚡ Analisi in corso..."):
+        with st.spinner(f"⚡ {t('query_analyzing')}"):
             start_time = time.time()
             result = send_query(question)
             elapsed = time.time() - start_time
@@ -891,7 +1136,7 @@ if st.session_state.last_result is not None:
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <div style="width: 36px; height: 36px; background: #ef4444; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✕</div>
                     <div>
-                        <div style="color: #ef4444; font-weight: 600; font-size: 16px;">Errore nell'analisi</div>
+                        <div style="color: #ef4444; font-weight: 600; font-size: 16px;">{t('results_error')}</div>
                         <div style="color: #9ca3af; font-size: 14px; margin-top: 4px;">{result["error"]}</div>
                     </div>
                 </div>
@@ -899,7 +1144,7 @@ if st.session_state.last_result is not None:
         """, unsafe_allow_html=True)
         
         if st.session_state.last_sql:
-            with st.expander("🔍 SQL generato (debug)"):
+            with st.expander(f"🔍 {t('results_sql_generated')} (debug)"):
                 st.code(st.session_state.last_sql, language="sql")
     else:
         # Success display
@@ -911,15 +1156,15 @@ if st.session_state.last_result is not None:
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <div style="width: 36px; height: 36px; background: #10b981; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✓</div>
                     <div>
-                        <div style="color: #10b981; font-weight: 600;">Query completata</div>
-                        <div style="color: #6b7280; font-size: 13px;">{len(df)} righe • {len(df.columns)} colonne • {query_time:.2f}s</div>
+                        <div style="color: #10b981; font-weight: 600;">{t('results_success')}</div>
+                        <div style="color: #6b7280; font-size: 13px;">{len(df)} {t('results_rows')} • {len(df.columns)} {t('results_columns')} • {query_time:.2f}s</div>
                     </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
         
         # Tabs for results
-        tab_chart, tab_table, tab_sql = st.tabs(["📊 Grafico", "📋 Tabella", "💻 SQL"])
+        tab_chart, tab_table, tab_sql, tab_dashboard = st.tabs([f"📊 {t('results_tab_chart')}", f"📋 {t('results_tab_table')}", f"💻 {t('results_tab_sql')}", f"📈 {t('results_tab_dashboard')}"])
         
         with tab_chart:
             if not df.empty:
@@ -927,50 +1172,105 @@ if st.session_state.last_result is not None:
                 
                 with col_opt:
                     auto_type = detect_chart_type(df)
-                    options = ["Auto", "Barre", "Torta", "Linea", "Scatter", "Tabella", "Metrica"]
-                    choice = st.selectbox("Tipo", options, index=0)
+                    options = [t('chart_auto'), t('chart_bar'), t('chart_pie'), t('chart_line'), t('chart_scatter'), t('chart_table'), t('chart_metric')]
+                    choice = st.selectbox(t('chart_type'), options, index=0)
                     
                     type_map = {
-                        "Auto": auto_type,
-                        "Barre": "bar",
-                        "Torta": "pie",
-                        "Linea": "line",
-                        "Scatter": "scatter",
-                        "Tabella": "table",
-                        "Metrica": "metric"
+                        t('chart_auto'): auto_type,
+                        t('chart_bar'): "bar",
+                        t('chart_pie'): "pie",
+                        t('chart_line'): "line",
+                        t('chart_scatter'): "scatter",
+                        t('chart_table'): "table",
+                        t('chart_metric'): "metric"
                     }
                     final_type = type_map.get(choice, "table")
                 
                 with col_viz:
                     create_chart(df, final_type)
             else:
-                st.info("Nessun dato da visualizzare")
+                st.info(t('results_no_data'))
         
         with tab_table:
             if not df.empty:
                 st.dataframe(df, use_container_width=True, height=450)
             else:
-                st.warning("La query non ha restituito risultati")
+                st.warning(t('results_no_results'))
         
         with tab_sql:
-            st.markdown("##### SQL Generato")
+            st.markdown(f"##### {t('results_sql_generated')}")
             st.code(st.session_state.last_sql, language="sql")
             
             if not df.empty:
-                st.markdown("##### Struttura Dati")
+                st.markdown(f"##### {t('results_data_structure')}")
                 schema_df = pd.DataFrame({
-                    "Colonna": df.columns,
-                    "Tipo": [str(t) for t in df.dtypes]
+                    t('results_column'): df.columns,
+                    t('results_type'): [str(dtype) for dtype in df.dtypes]
                 })
                 st.dataframe(schema_df, use_container_width=True, hide_index=True)
+        
+        with tab_dashboard:
+            if not df.empty:
+                st.markdown(f"##### 📈 {t('dashboard_title')}")
+                st.caption(t('dashboard_hint'))
+                
+                if st.button(f"🎯 {t('dashboard_generate')}", use_container_width=True, key="gen_dashboard"):
+                    with st.spinner(t('dashboard_generating')):
+                        data_list = df.to_dict(orient="records")
+                        success, dashboard_data = generate_dashboard(data_list, "Dashboard DataPulse")
+                    
+                    if success:
+                        st.success(f"✅ {t('dashboard_success')}")
+                        
+                        # Display widgets
+                        if "widgets" in dashboard_data:
+                            widgets = dashboard_data["widgets"]
+                            
+                            # Show widgets in grid
+                            cols_per_row = 2
+                            for i in range(0, len(widgets), cols_per_row):
+                                cols = st.columns(cols_per_row)
+                                for j in range(cols_per_row):
+                                    if i + j < len(widgets):
+                                        widget = widgets[i + j]
+                                        with cols[j]:
+                                            st.markdown(f"""
+                                                <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                                                    <div style="font-size: 14px; color: #9ca3af; margin-bottom: 8px;">{widget.get('title', 'Widget')}</div>
+                                                    <div style="font-size: 11px; color: #6b7280;">{t('chart_type')}: {widget.get('chart_type', 'auto')}</div>
+                                                </div>
+                                            """, unsafe_allow_html=True)
+                                            
+                                            # Create chart for widget
+                                            widget_df = df.copy()
+                                            chart_type = widget.get('chart_type', 'bar')
+                                            if chart_type in ['bar', 'pie', 'line', 'scatter', 'metric']:
+                                                create_chart(widget_df, chart_type)
+                        
+                        # Stats
+                        if "stats" in dashboard_data:
+                            st.markdown("---")
+                            st.markdown(f"##### 📊 {t('dashboard_stats')}")
+                            stats = dashboard_data.get("stats", {})
+                            stat_cols = st.columns(3)
+                            with stat_cols[0]:
+                                st.metric(t('dashboard_rows'), stats.get("total_rows", len(df)))
+                            with stat_cols[1]:
+                                st.metric(t('dashboard_columns'), stats.get("total_columns", len(df.columns)))
+                            with stat_cols[2]:
+                                st.metric(t('dashboard_data_types'), len(df.dtypes.unique()))
+                    else:
+                        st.error(f"❌ {t('dashboard_error')}: {dashboard_data}")
+            else:
+                st.info(t('dashboard_run_query'))
 
 # =============================================================================
 # FOOTER
 # =============================================================================
 
 st.markdown("<br><br>", unsafe_allow_html=True)
-st.markdown("""
+st.markdown(f"""
     <div style="text-align: center; padding: 24px; border-top: 1px solid #2a2a32; color: #6b7280; font-size: 13px;">
-        DataPulse AI Analytics
+        {t('footer_text')}
     </div>
 """, unsafe_allow_html=True)

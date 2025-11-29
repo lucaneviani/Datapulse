@@ -7,18 +7,23 @@ API REST per l'analisi dati aziendali con generazione SQL tramite AI.
 Questo modulo fornisce:
 - Endpoint /api/analyze per interrogare dati con linguaggio naturale
 - Endpoint per upload di database CSV/Excel/SQLite personalizzati
+- Sistema di autenticazione JWT
+- Dashboard automatiche
+- Export avanzato (PDF, Excel, CSV, HTML)
 - Integrazione con Google Gemini per generazione SQL
 - Validazione sicurezza SQL con whitelist tabelle
 - Cache e rate limiting per ottimizzazione performance
 
 Author: Luca Neviani
-Version: 2.0.0
+Version: 2.1.0
 License: MIT
 """
 
 import logging
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import os
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from backend.models import create_database
@@ -33,6 +38,9 @@ from backend.database_manager import (
     session_manager, execute_query_on_session, 
     get_session_tables, get_session_schema
 )
+from backend.auth import auth_manager
+from backend.dashboard import dashboard_manager
+from backend.export_service import export_service
 
 # ============================================================================
 # CONFIGURAZIONE LOGGING
@@ -69,6 +77,33 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="Messaggio di errore")
     generated_sql: Optional[str] = Field(None, description="SQL generato (se disponibile)")
     suggestion: Optional[str] = Field(None, description="Suggerimento per risolvere l'errore")
+
+# ============================================================================
+# MODELLI AUTENTICAZIONE
+# ============================================================================
+
+class RegisterRequest(BaseModel):
+    """Schema richiesta registrazione utente."""
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=100)
+    password: str = Field(..., min_length=6, max_length=100)
+
+class LoginRequest(BaseModel):
+    """Schema richiesta login."""
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=1, max_length=100)
+
+class ExportRequest(BaseModel):
+    """Schema richiesta export."""
+    data: List[Dict[str, Any]] = Field(..., description="Dati da esportare")
+    format: str = Field(..., description="Formato: pdf, excel, csv, html")
+    title: Optional[str] = Field("Report DataPulse", description="Titolo del report")
+    query: Optional[str] = Field(None, description="Query SQL eseguita")
+
+class DashboardRequest(BaseModel):
+    """Schema richiesta creazione dashboard."""
+    data: List[Dict[str, Any]] = Field(..., description="Dati da analizzare")
+    title: Optional[str] = Field("Dashboard", description="Titolo dashboard")
 
 # ============================================================================
 # INIZIALIZZAZIONE APP FASTAPI
@@ -549,3 +584,319 @@ def analyze_with_session(session_id: str, data: dict):
         "data": result,
         "row_count": len(result)
     }
+
+
+# ============================================================================
+# ENDPOINTS AUTENTICAZIONE
+# ============================================================================
+
+@app.post("/api/auth/register", tags=["Authentication"])
+def register_user(data: RegisterRequest):
+    """
+    Registra un nuovo utente.
+    
+    Args:
+        data: username, email, password
+    
+    Returns:
+        dict: Informazioni utente e token JWT
+    """
+    success, result = auth_manager.register_user(
+        username=data.username,
+        email=data.email,
+        password=data.password
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=result)
+    
+    return result
+
+
+@app.post("/api/auth/login", tags=["Authentication"])
+def login_user(data: LoginRequest):
+    """
+    Login utente.
+    
+    Args:
+        data: username, password
+    
+    Returns:
+        dict: Token JWT e informazioni utente
+    """
+    success, result = auth_manager.login_user(
+        username=data.username,
+        password=data.password
+    )
+    
+    if not success:
+        raise HTTPException(status_code=401, detail=result)
+    
+    return result
+
+
+@app.get("/api/auth/me", tags=["Authentication"])
+def get_current_user(authorization: Optional[str] = Header(None)):
+    """
+    Ottiene informazioni sull'utente corrente.
+    
+    Richiede header Authorization: Bearer <token>
+    
+    Returns:
+        dict: Informazioni utente
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token non fornito")
+    
+    token = authorization.replace("Bearer ", "")
+    user = auth_manager.get_current_user(token)
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Token non valido o scaduto")
+    
+    return user
+
+
+@app.post("/api/auth/logout", tags=["Authentication"])
+def logout_user(authorization: Optional[str] = Header(None)):
+    """
+    Logout utente (invalida il token).
+    
+    Returns:
+        dict: Messaggio di conferma
+    """
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+        auth_manager.logout_user(token)
+    
+    return {"message": "Logout effettuato con successo"}
+
+
+# ============================================================================
+# ENDPOINTS DASHBOARD
+# ============================================================================
+
+@app.post("/api/dashboard/analyze", tags=["Dashboard"])
+def analyze_for_dashboard(data: DashboardRequest):
+    """
+    Analizza i dati e suggerisce visualizzazioni.
+    
+    Args:
+        data: Dati da analizzare
+    
+    Returns:
+        dict: Analisi dei dati e suggerimenti grafici
+    """
+    if not data.data:
+        raise HTTPException(status_code=400, detail="Nessun dato fornito")
+    
+    analysis = dashboard_manager.analyze_data(data.data)
+    suggestions = dashboard_manager.suggest_visualizations(data.data, analysis)
+    
+    return {
+        "analysis": analysis,
+        "suggested_visualizations": suggestions
+    }
+
+
+@app.post("/api/dashboard/create", tags=["Dashboard"])
+def create_dashboard(data: DashboardRequest):
+    """
+    Crea una dashboard automatica dai dati.
+    
+    Args:
+        data: Dati e titolo
+    
+    Returns:
+        dict: Layout dashboard con widget
+    """
+    if not data.data:
+        raise HTTPException(status_code=400, detail="Nessun dato fornito")
+    
+    dashboard = dashboard_manager.create_dashboard(
+        data=data.data,
+        title=data.title or "Dashboard"
+    )
+    
+    return dashboard.to_dict()
+
+
+@app.get("/api/dashboard/{dashboard_id}", tags=["Dashboard"])
+def get_dashboard(dashboard_id: str):
+    """
+    Carica una dashboard salvata.
+    
+    Args:
+        dashboard_id: ID della dashboard
+    
+    Returns:
+        dict: Layout dashboard
+    """
+    dashboard = dashboard_manager.load_dashboard(dashboard_id)
+    
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="Dashboard non trovata")
+    
+    return dashboard
+
+
+@app.post("/api/dashboard/{dashboard_id}/save", tags=["Dashboard"])
+def save_dashboard(dashboard_id: str, layout: dict):
+    """
+    Salva una dashboard.
+    
+    Args:
+        dashboard_id: ID della dashboard
+        layout: Layout da salvare
+    
+    Returns:
+        dict: Conferma salvataggio
+    """
+    success = dashboard_manager.save_dashboard(dashboard_id, layout)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Errore nel salvataggio")
+    
+    return {"success": True, "dashboard_id": dashboard_id}
+
+
+# ============================================================================
+# ENDPOINTS EXPORT
+# ============================================================================
+
+@app.post("/api/export", tags=["Export"])
+def export_data(data: ExportRequest):
+    """
+    Esporta i dati nel formato richiesto.
+    
+    Formati supportati: pdf, excel, csv, html
+    
+    Args:
+        data: Dati, formato, titolo, query
+    
+    Returns:
+        File nel formato richiesto
+    """
+    if not data.data:
+        raise HTTPException(status_code=400, detail="Nessun dato da esportare")
+    
+    format_lower = data.format.lower()
+    
+    try:
+        if format_lower == "pdf":
+            content = export_service.export_to_pdf(
+                data=data.data,
+                title=data.title,
+                query=data.query
+            )
+            return Response(
+                content=content,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="report.pdf"'}
+            )
+        
+        elif format_lower == "excel":
+            content = export_service.export_to_excel(
+                data=data.data,
+                title=data.title,
+                query=data.query
+            )
+            return Response(
+                content=content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="report.xlsx"'}
+            )
+        
+        elif format_lower == "csv":
+            content = export_service.export_to_csv(data.data)
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="report.csv"'}
+            )
+        
+        elif format_lower == "html":
+            content = export_service.export_to_html(
+                data=data.data,
+                title=data.title,
+                query=data.query
+            )
+            return Response(
+                content=content,
+                media_type="text/html",
+                headers={"Content-Disposition": f'attachment; filename="report.html"'}
+            )
+        
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Formato non supportato: {data.format}. Usa: pdf, excel, csv, html"
+            )
+    
+    except Exception as e:
+        logger.error(f"Errore export: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore durante l'export: {str(e)}")
+
+
+@app.post("/api/export/report", tags=["Export"])
+def generate_report(data: dict):
+    """
+    Genera un report completo con analisi.
+    
+    Args:
+        data: {
+            "data": [...],
+            "format": "pdf|excel|html",
+            "title": "Titolo",
+            "query": "SQL query",
+            "include_charts": true,
+            "include_summary": true
+        }
+    
+    Returns:
+        Report completo nel formato richiesto
+    """
+    report_data = data.get("data", [])
+    format_type = data.get("format", "pdf").lower()
+    title = data.get("title", "Report DataPulse")
+    query = data.get("query")
+    include_charts = data.get("include_charts", True)
+    include_summary = data.get("include_summary", True)
+    
+    if not report_data:
+        raise HTTPException(status_code=400, detail="Nessun dato per il report")
+    
+    try:
+        content = export_service.generate_report(
+            data=report_data,
+            format_type=format_type,
+            title=title,
+            query=query,
+            include_charts=include_charts,
+            include_summary=include_summary
+        )
+        
+        # Determina content type
+        content_types = {
+            "pdf": "application/pdf",
+            "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "html": "text/html"
+        }
+        
+        extensions = {
+            "pdf": "pdf",
+            "excel": "xlsx",
+            "html": "html"
+        }
+        
+        return Response(
+            content=content,
+            media_type=content_types.get(format_type, "application/octet-stream"),
+            headers={
+                "Content-Disposition": f'attachment; filename="report.{extensions.get(format_type, "bin")}"'
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"Errore generazione report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore durante la generazione: {str(e)}")

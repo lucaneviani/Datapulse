@@ -12,3 +12,8 @@ pytest
 httpx
 python-multipart
 openpyxl
+# Authentication
+pyjwt
+bcrypt
+# Export PDF
+reportlab
