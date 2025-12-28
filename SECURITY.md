@@ -13,9 +13,11 @@ Currently supported versions with security updates:
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via email to: [your-email@example.com]
+Instead, please report them via:
+- **Email**: Create a GitHub Security Advisory (preferred)
+- **GitHub**: Use "Security" tab → "Report a vulnerability"
 
-You should receive a response within 48 hours. If for some reason you do not, please follow up via email to ensure we received your original message.
+You should receive a response within 48 hours. If for some reason you do not, please follow up to ensure we received your original message.
 
 Please include the following information:
 
