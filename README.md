@@ -30,55 +30,42 @@
 
 ## Overview
 
-**DataPulse** is a business intelligence application that allows you to query SQL databases using natural language questions. Powered by Google Gemini AI, it automatically converts your questions into secure SQL queries and returns results in tabular or graphical format.
+**DataPulse** is a modern business intelligence platform that enables users to query SQL databases using natural language. Powered by Google Gemini AI, it automatically converts questions into secure SQL queries and presents results in interactive tables and charts.
 
-### Key Features
+Perfect for business analysts, data scientists, and anyone who needs quick insights from their data without writing SQL.
 
-- **AI-Powered SQL Generation** - Convert natural language to valid SQL queries
-- **Built-in Security** - SQL validation, table whitelist, injection protection
-- **Automatic Visualizations** - Dynamic charts with Plotly (bar, pie, line)
-- **Smart Caching** - Query caching for optimal performance
-- **Rate Limiting** - API protection with request limits
-- **Interactive Dashboard** - Modern, responsive Streamlit interface
-- **Multi-language Support** - Available in IT, EN, ES, FR, DE
-- **Custom Database Upload** - Support for CSV, Excel, and SQLite files
+### ✨ Key Features
+
+- 🤖 **AI-Powered SQL Generation** - Convert natural language to valid SQL queries
+- 🔒 **Built-in Security** - SQL validation, table whitelist, injection protection
+- 📊 **Automatic Visualizations** - Dynamic charts with Plotly (bar, pie, line)
+- ⚡ **Smart Caching** - Query caching for optimal performance
+- 🛡️ **Rate Limiting** - API protection with request limits
+- 🎨 **Interactive Dashboard** - Modern, responsive Streamlit interface
+- 🌍 **Multi-language Support** - Available in IT, EN, ES, FR, DE
+- 📁 **Custom Database Upload** - Support for CSV, Excel, and SQLite files
+- 🔐 **JWT Authentication** - Secure user management
+- 🐳 **Docker Support** - Easy deployment with containers
 
 ---
 
-## Architecture
+## 📂 Project Structure
+
+For detailed information, see [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md).
 
 ```
 DataPulse/
 ├── backend/                 # FastAPI REST API
-│   ├── main.py             # API endpoints and lifespan
-│   ├── config.py           # Centralized configuration (Pydantic)
-│   ├── logger.py           # Structured logging
-│   ├── ai_service.py       # Gemini AI integration
+│   ├── main.py             # API endpoints
+│   ├── config.py           # Configuration management
+│   ├── ai_service.py       # AI integration
 │   ├── auth.py             # JWT authentication
-│   ├── schemas.py          # Pydantic request/response models
-│   ├── middleware.py       # Error handling middleware
-│   ├── dashboard.py        # Dashboard generation
-│   ├── export_service.py   # Export functionality
-│   ├── database_manager.py # Session management
-│   ├── i18n.py             # Internationalization
-│   ├── models.py           # SQLAlchemy models
-│   └── requirements.txt    # Python dependencies
+│   └── ...
 ├── frontend/               # Streamlit UI
-│   └── app.py              # Interactive dashboard
-├── data/                   # Database files
-│   └── database.db         # SQLite database
-├── tests/                  # Unit tests (184+ tests)
-│   ├── test_ai_service.py  # AI service tests
-│   ├── test_api.py         # API endpoint tests
-│   ├── test_auth.py        # Authentication tests
-│   ├── test_database_manager.py
-│   ├── test_middleware.py  # Middleware tests
-│   └── test_schemas.py     # Schema validation tests
-├── Dockerfile              # Multi-stage production build
-├── docker-compose.yml      # Container orchestration
-├── .env.template           # Environment template
-├── DEPLOY_CHECKLIST.md     # Production deployment guide
-└── README.md
+├── tests/                  # Test suite (188+ tests)
+├── .github/                # CI/CD workflows
+├── scripts/                # Utility scripts
+└── docs/                   # Documentation
 ```
 
 ---
