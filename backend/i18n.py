@@ -1,18 +1,17 @@
 """
-DataPulse Internationalization (i18n) System
-=============================================
+DataPulse Internationalization (i18n) Module
 
-Sistema di traduzione multi-lingua per DataPulse.
+Multi-language translation system for the DataPulse application.
 
-Lingue supportate:
-- Italiano (it) - Default
-- English (en)
-- Español (es)
-- Français (fr)
-- Deutsch (de)
+Supported Languages:
+    - Italian (it) - Default
+    - English (en)
+    - Spanish (es)
+    - French (fr)
+    - German (de)
 
-Author: DataPulse Team
-License: MIT
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
 from typing import Dict, Optional
@@ -20,9 +19,9 @@ import logging
 
 logger = logging.getLogger("datapulse.i18n")
 
-# ============================================================================
-# CONFIGURAZIONE LINGUE
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Language Configuration
+# -----------------------------------------------------------------------------
 
 SUPPORTED_LANGUAGES = {
     "it": {"name": "Italiano", "flag": "🇮🇹", "native": "Italiano"},
@@ -34,14 +33,14 @@ SUPPORTED_LANGUAGES = {
 
 DEFAULT_LANGUAGE = "it"
 
-# ============================================================================
-# DIZIONARI TRADUZIONI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Translation Dictionaries
+# -----------------------------------------------------------------------------
 
 TRANSLATIONS: Dict[str, Dict[str, str]] = {
-    # ========================================================================
-    # ITALIANO (Default)
-    # ========================================================================
+    # -------------------------------------------------------------------------
+    # Italian (Default)
+    # -------------------------------------------------------------------------
     "it": {
         # App General
         "app_name": "DataPulse",
@@ -648,9 +647,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 }
 
 
-# ============================================================================
-# CLASSE I18N MANAGER
-# ============================================================================
+# -----------------------------------------------------------------------------
+# I18n Manager Class
+# -----------------------------------------------------------------------------
 
 class I18nManager:
     """

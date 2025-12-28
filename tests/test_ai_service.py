@@ -1,14 +1,14 @@
 """
-Unit Tests per AI Service - DataPulse
-=====================================
-Testa la generazione SQL e la validazione di sicurezza.
+DataPulse AI Service Tests
+
+Unit tests for SQL generation and security validation.
 """
 
 import pytest
 import sys
 import os
 
-# Aggiungi il path del progetto
+# Add project path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.ai_service import (
@@ -311,6 +311,154 @@ class TestUnionBlocking:
         """UNION ALL deve essere bloccato."""
         sql = "SELECT * FROM customers UNION ALL SELECT * FROM products"
         assert validate_sql(sql, check_tables=False) == False
+
+
+class TestValidateSQLDynamic:
+    """Test per validate_sql_dynamic - validazione per database dinamici (A1 fix)."""
+    
+    def test_valid_select_query(self):
+        """Query SELECT valida deve passare."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT * FROM any_table")
+        assert is_valid == True
+        assert msg == "OK"
+    
+    def test_valid_complex_query(self):
+        """Query SELECT complessa deve passare."""
+        from backend.ai_service import validate_sql_dynamic
+        sql = "SELECT a.col1, SUM(b.col2) FROM table_a a JOIN table_b b ON a.id = b.id GROUP BY a.col1"
+        is_valid, msg = validate_sql_dynamic(sql)
+        assert is_valid == True
+    
+    def test_empty_query_rejected(self):
+        """Query vuota deve essere rifiutata."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("")
+        assert is_valid == False
+        assert "Empty" in msg or "invalid" in msg
+    
+    def test_non_select_rejected(self):
+        """Query non-SELECT deve essere rifiutata."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("INSERT INTO table VALUES (1)")
+        assert is_valid == False
+        assert "SELECT" in msg
+    
+    def test_drop_blocked(self):
+        """DROP deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT 1; DROP TABLE users")
+        assert is_valid == False
+    
+    def test_delete_blocked(self):
+        """DELETE deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("DELETE FROM users WHERE 1=1")
+        assert is_valid == False
+    
+    def test_update_blocked(self):
+        """UPDATE deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("UPDATE users SET admin=1")
+        assert is_valid == False
+    
+    def test_insert_blocked(self):
+        """INSERT deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("INSERT INTO users VALUES ('hacker')")
+        assert is_valid == False
+    
+    def test_sql_comments_blocked(self):
+        """Commenti SQL devono essere bloccati."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT * FROM users -- comment")
+        assert is_valid == False
+        assert "comment" in msg.lower()
+        
+        is_valid, msg = validate_sql_dynamic("SELECT * FROM users /* block */")
+        assert is_valid == False
+    
+    def test_union_blocked(self):
+        """UNION deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT a FROM t1 UNION SELECT b FROM t2")
+        assert is_valid == False
+        assert "UNION" in msg
+    
+    def test_multiple_statements_blocked(self):
+        """Statement multipli devono essere bloccati."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT 1; SELECT 2")
+        assert is_valid == False
+        assert "Multiple" in msg or "semicolon" in msg.lower() or "statements" in msg.lower()
+    
+    def test_semicolon_at_end_allowed(self):
+        """Punto e virgola alla fine deve essere permesso."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT * FROM users;")
+        assert is_valid == True
+    
+    def test_semicolon_in_middle_blocked(self):
+        """Punto e virgola a metà query deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT 1; DROP TABLE users")
+        assert is_valid == False
+    
+    def test_exec_blocked(self):
+        """EXEC/EXECUTE devono essere bloccati."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("EXEC sp_executesql")
+        assert is_valid == False
+    
+    def test_pragma_blocked(self):
+        """PRAGMA deve essere bloccato (SQLite)."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("PRAGMA table_info(users)")
+        assert is_valid == False
+    
+    def test_attach_blocked(self):
+        """ATTACH deve essere bloccato (SQLite)."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("ATTACH DATABASE '/etc/passwd' AS pwd")
+        assert is_valid == False
+    
+    def test_sleep_blocked(self):
+        """SLEEP (timing attack) deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT SLEEP(10)")
+        assert is_valid == False
+        assert "Time" in msg or "function" in msg.lower()
+    
+    def test_benchmark_blocked(self):
+        """BENCHMARK (timing attack) deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT BENCHMARK(1000000, SHA1('test'))")
+        assert is_valid == False
+    
+    def test_hex_encoding_blocked(self):
+        """Codifica hex deve essere bloccata."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT 0x44524F50205441424C45")
+        assert is_valid == False
+        assert "Encoded" in msg or "character" in msg.lower()
+    
+    def test_char_encoding_blocked(self):
+        """CHAR() encoding deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT CHAR(68,82,79,80)")
+        assert is_valid == False
+    
+    def test_load_file_blocked(self):
+        """LOAD_FILE deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT LOAD_FILE('/etc/passwd')")
+        assert is_valid == False
+    
+    def test_into_outfile_blocked(self):
+        """INTO OUTFILE deve essere bloccato."""
+        from backend.ai_service import validate_sql_dynamic
+        is_valid, msg = validate_sql_dynamic("SELECT * FROM users INTO OUTFILE '/tmp/data'")
+        assert is_valid == False
 
 
 if __name__ == "__main__":

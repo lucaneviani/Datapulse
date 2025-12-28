@@ -1,17 +1,16 @@
 """
-DataPulse Dashboard System
-==========================
+DataPulse Dashboard Module
 
-Sistema per generazione automatica di dashboard dai dati.
+Automatic dashboard generation system for data visualization.
 
 Features:
-- Analisi automatica dei dati per suggerire visualizzazioni
-- Widget predefiniti (KPI, grafici, tabelle)
-- Layout personalizzabile
-- Salvataggio e caricamento dashboard
+    - Automatic data analysis for visualization suggestions
+    - Predefined widgets (KPI, charts, tables)
+    - Customizable layouts
+    - Dashboard persistence and loading
 
-Author: DataPulse Team
-License: MIT
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
 import json
@@ -28,49 +27,49 @@ BASE_DIR = Path(__file__).parent.parent
 AUTH_DB_PATH = BASE_DIR / "data" / "users.db"
 
 
-# ============================================================================
-# MODELLI WIDGET
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Widget Types
+# -----------------------------------------------------------------------------
 
 WIDGET_TYPES = {
     "kpi": {
         "name": "KPI Card",
-        "description": "Singolo valore numerico con label",
+        "description": "Single numeric value with label",
         "icon": "📊",
         "min_cols": 1,
         "min_rows": 1
     },
     "bar_chart": {
-        "name": "Grafico a Barre",
-        "description": "Confronto tra categorie",
+        "name": "Bar Chart",
+        "description": "Category comparison",
         "icon": "📊",
         "min_cols": 2,
         "min_rows": 2
     },
     "pie_chart": {
-        "name": "Grafico a Torta",
-        "description": "Distribuzione percentuale",
+        "name": "Pie Chart",
+        "description": "Percentage distribution",
         "icon": "🥧",
         "min_cols": 2,
         "min_rows": 2
     },
     "line_chart": {
-        "name": "Grafico a Linee",
-        "description": "Trend temporale",
+        "name": "Line Chart",
+        "description": "Time series trend",
         "icon": "📈",
         "min_cols": 2,
         "min_rows": 2
     },
     "table": {
-        "name": "Tabella",
-        "description": "Dati tabulari",
+        "name": "Table",
+        "description": "Tabular data",
         "icon": "📋",
         "min_cols": 2,
         "min_rows": 2
     },
     "scatter": {
         "name": "Scatter Plot",
-        "description": "Correlazione tra variabili",
+        "description": "Variable correlation",
         "icon": "⚬",
         "min_cols": 2,
         "min_rows": 2
@@ -78,19 +77,19 @@ WIDGET_TYPES = {
 }
 
 
-# ============================================================================
-# ANALISI AUTOMATICA DATI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Automatic Data Analysis
+# -----------------------------------------------------------------------------
 
 def analyze_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
     """
-    Analizza un DataFrame e suggerisce visualizzazioni appropriate.
+    Analyze a DataFrame and suggest appropriate visualizations.
     
     Returns:
-        Dict con info su colonne, tipi, e widget suggeriti
+        Dict with column info, types, and suggested widgets
     """
     if df is None or df.empty:
-        return {"error": "DataFrame vuoto"}
+        return {"error": "Empty DataFrame"}
     
     analysis = {
         "rows": len(df),
@@ -192,12 +191,12 @@ def analyze_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
     return analysis
 
 
-def generate_auto_dashboard(df: pd.DataFrame, name: str = "Dashboard Automatica") -> Dict[str, Any]:
+def generate_auto_dashboard(df: pd.DataFrame, name: str = "Auto Dashboard") -> Dict[str, Any]:
     """
-    Genera una configurazione dashboard automatica basata sui dati.
+    Generate automatic dashboard configuration based on data.
     
     Returns:
-        Configurazione dashboard pronta per il rendering
+        Dashboard configuration ready for rendering
     """
     analysis = analyze_dataframe(df)
     
@@ -253,12 +252,12 @@ def generate_auto_dashboard(df: pd.DataFrame, name: str = "Dashboard Automatica"
     return dashboard_config
 
 
-# ============================================================================
-# GESTIONE DASHBOARD
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Dashboard Management
+# -----------------------------------------------------------------------------
 
 def save_dashboard(user_id: int, name: str, config: Dict, is_default: bool = False) -> Tuple[bool, str, Optional[int]]:
-    """Salva una dashboard per l'utente."""
+    """Save a dashboard for the user."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     
@@ -277,7 +276,7 @@ def save_dashboard(user_id: int, name: str, config: Dict, is_default: bool = Fal
         )
         dashboard_id = cursor.lastrowid
         conn.commit()
-        return True, "Dashboard salvata", dashboard_id
+        return True, "Dashboard saved", dashboard_id
     except Exception as e:
         return False, str(e), None
     finally:

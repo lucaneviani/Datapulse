@@ -1,36 +1,32 @@
 """
-DataPulse Backend - FastAPI Application
-========================================
+DataPulse API Server
 
-API REST per l'analisi dati aziendali con generazione SQL tramite AI.
+FastAPI application providing REST endpoints for natural language to SQL
+conversion powered by Google Gemini AI.
 
-Questo modulo fornisce:
-- Endpoint /api/analyze per interrogare dati con linguaggio naturale
-- Endpoint per upload di database CSV/Excel/SQLite personalizzati
-- Sistema di autenticazione JWT
-- Dashboard automatiche
-- Export avanzato (PDF, Excel, CSV, HTML)
-- Integrazione con Google Gemini per generazione SQL
-- Validazione sicurezza SQL con whitelist tabelle
-- Cache e rate limiting per ottimizzazione performance
+Endpoints:
+    POST /api/analyze     - Convert natural language to SQL and execute
+    POST /api/upload/*    - Upload custom databases (CSV, Excel, SQLite)
+    POST /api/auth/*      - User authentication (JWT)
+    POST /api/export/*    - Export data (PDF, Excel, CSV, HTML)
+    GET  /api/dashboard/* - Dashboard management
 
-Author: Luca Neviani
-Version: 2.1.0
-License: MIT
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from backend.models import create_database
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 from backend.ai_service import (
-    generate_sql, validate_sql, validate_sql_strict, 
+    generate_sql, validate_sql, validate_sql_strict, validate_sql_dynamic,
     get_cache_stats, clear_cache, sanitize_input, ALLOWED_TABLES,
     generate_sql_dynamic
 )
@@ -42,9 +38,27 @@ from backend.auth import auth_manager
 from backend.dashboard import dashboard_manager
 from backend.export_service import export_service
 
-# ============================================================================
-# CONFIGURAZIONE LOGGING
-# ============================================================================
+# B3: Import centralized Pydantic schemas
+from backend.schemas import (
+    AnalyzeRequest, AnalyzeResponse, ErrorResponse,
+    RegisterRequest, LoginRequest, AuthResponse,
+    ExportRequest, ExportResponse,
+    DashboardCreateRequest, DashboardResponse,
+    SessionCreateResponse, SchemaResponse, HealthCheckResponse,
+    AnalyzeSessionRequest
+)
+
+# B5: Import error handling middleware
+from backend.middleware import (
+    setup_middleware,
+    DataPulseException, ValidationException, NotFoundException,
+    DatabaseException, AIServiceException, RateLimitException,
+    get_request_id
+)
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,83 +66,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger("datapulse")
 
-# ============================================================================
-# MODELLI PYDANTIC (Request/Response)
-# ============================================================================
+# NOTE: Request/Response models are now imported from backend.schemas (B3 refactoring)
+# See: backend/schemas.py for all Pydantic models
 
-class AnalyzeRequest(BaseModel):
-    """Schema richiesta per endpoint /api/analyze."""
-    question: str = Field(
-        ..., 
-        min_length=1, 
-        max_length=500, 
-        description="Domanda in linguaggio naturale (es. 'Quanti clienti ci sono?')",
-        examples=["How many customers are there?", "What are the total sales by region?"]
-    )
+# -----------------------------------------------------------------------------
+# Application Lifespan (startup/shutdown)
+# -----------------------------------------------------------------------------
 
-class AnalyzeResponse(BaseModel):
-    """Schema risposta successo per endpoint /api/analyze."""
-    generated_sql: str = Field(..., description="Query SQL generata dall'AI")
-    data: List[Dict[str, Any]] = Field(..., description="Risultati della query")
-    row_count: int = Field(0, description="Numero di righe restituite")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup/shutdown events."""
+    # Startup
+    logger.info("=" * 60)
+    logger.info("DataPulse API Starting...")
+    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
+    logger.info(f"Debug Mode: {os.getenv('DEBUG', 'false')}")
+    
+    # Validate configuration
+    try:
+        from backend.config import settings, validate_settings
+        warnings = validate_settings()
+        for warning in warnings:
+            logger.warning(f"Config: {warning}")
+    except ImportError:
+        pass
+    
+    logger.info("DataPulse API Ready ✓")
+    logger.info("=" * 60)
+    
+    yield  # Application runs here
+    
+    # Shutdown
+    logger.info("DataPulse API Shutting down...")
+    
+    # Clear sensitive data from cache
+    try:
+        clear_cache()
+        logger.info("Cache cleared")
+    except Exception as e:
+        logger.warning(f"Cache clear failed: {e}")
+    
+    # Session cleanup is handled by SessionManager's background thread
+    logger.info("DataPulse API Stopped")
 
-class ErrorResponse(BaseModel):
-    """Schema risposta errore."""
-    error: str = Field(..., description="Messaggio di errore")
-    generated_sql: Optional[str] = Field(None, description="SQL generato (se disponibile)")
-    suggestion: Optional[str] = Field(None, description="Suggerimento per risolvere l'errore")
-
-# ============================================================================
-# MODELLI AUTENTICAZIONE
-# ============================================================================
-
-class RegisterRequest(BaseModel):
-    """Schema richiesta registrazione utente."""
-    username: str = Field(..., min_length=3, max_length=50)
-    email: str = Field(..., min_length=5, max_length=100)
-    password: str = Field(..., min_length=6, max_length=100)
-
-class LoginRequest(BaseModel):
-    """Schema richiesta login."""
-    username: str = Field(..., min_length=3, max_length=50)
-    password: str = Field(..., min_length=1, max_length=100)
-
-class ExportRequest(BaseModel):
-    """Schema richiesta export."""
-    data: List[Dict[str, Any]] = Field(..., description="Dati da esportare")
-    format: str = Field(..., description="Formato: pdf, excel, csv, html")
-    title: Optional[str] = Field("Report DataPulse", description="Titolo del report")
-    query: Optional[str] = Field(None, description="Query SQL eseguita")
-
-class DashboardRequest(BaseModel):
-    """Schema richiesta creazione dashboard."""
-    data: List[Dict[str, Any]] = Field(..., description="Dati da analizzare")
-    title: Optional[str] = Field("Dashboard", description="Titolo dashboard")
-
-# ============================================================================
-# INIZIALIZZAZIONE APP FASTAPI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# FastAPI Application
+# -----------------------------------------------------------------------------
 
 app = FastAPI(
     title="DataPulse API",
     description="""
-## 📊 DataPulse - AI-Powered Business Intelligence
+## DataPulse - AI-Powered Business Intelligence
 
-API REST per interrogare database SQL usando linguaggio naturale.
+REST API for querying SQL databases using natural language.
 
-### Funzionalità:
-- **Generazione SQL con AI** - Converti domande in query SQL sicure
-- **Validazione Sicurezza** - Whitelist tabelle, blocco injection
-- **Cache Intelligente** - Ottimizzazione performance
-- **Rate Limiting** - Protezione API key
+### Features:
+- **AI SQL Generation** - Convert questions to secure SQL queries
+- **Security Validation** - Table whitelist, injection protection
+- **Smart Caching** - Performance optimization
+- **Rate Limiting** - API key protection
 
-### Tabelle Disponibili:
-- `customers` - Anagrafica clienti
-- `products` - Catalogo prodotti  
-- `orders` - Ordini
-- `order_items` - Dettaglio ordini
+### Available Tables:
+- `customers` - Customer records
+- `products` - Product catalog
+- `orders` - Orders
+- `order_items` - Order details
     """,
-    version="1.0.0",
+    version="2.1.0",
     contact={
         "name": "Luca Neviani",
         "url": "https://github.com/lucaneviani/Datapulse"
@@ -136,26 +140,43 @@ API REST per interrogare database SQL usando linguaggio naturale.
     license_info={
         "name": "MIT",
         "url": "https://opensource.org/licenses/MIT"
-    }
+    },
+    lifespan=lifespan
 )
 
-# CORS Middleware per frontend
+# CORS Middleware for frontend
+# SECURITY: In production, ALWAYS set CORS_ORIGINS env var!
+# Example: CORS_ORIGINS=https://myapp.com,https://admin.myapp.com
+_cors_origins = os.getenv("CORS_ORIGINS", "")
+if not _cors_origins:
+    # Development mode: allow localhost only
+    ALLOWED_ORIGINS = ["http://localhost:8501", "http://127.0.0.1:8501", "http://localhost:3000"]
+    logger.warning("CORS_ORIGINS not set - using localhost defaults. Set CORS_ORIGINS in production!")
+elif _cors_origins == "*":
+    ALLOWED_ORIGINS = ["*"]
+    logger.warning("CORS_ORIGINS='*' is insecure for production!")
+else:
+    ALLOWED_ORIGINS = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In produzione, specifica i domini
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# ============================================================================
-# CONFIGURAZIONE DATABASE
-# ============================================================================
+# B5: Setup error handling middleware
+setup_middleware(app, debug=os.getenv("DEBUG", "false").lower() == "true")
+
+# -----------------------------------------------------------------------------
+# Database Configuration
+# -----------------------------------------------------------------------------
 
 engine = create_database()
 Session = sessionmaker(bind=engine)
 
-# Schema DB per AI (formato semplificato per prompt)
+# Database schema for AI prompt (simplified format)
 db_schema = """
 customers(id, name, segment, country, city, state, postal_code, region)
 products(id, name, category, sub_category)
@@ -163,36 +184,89 @@ orders(id, customer_id, order_date, ship_date, ship_mode, total)
 order_items(id, order_id, product_id, quantity, sales, discount, profit)
 """
 
-# Limite massimo righe restituite (protezione memoria)
+# Maximum rows returned (memory protection)
 MAX_ROWS = 1000
 
 
-# ============================================================================
-# ENDPOINTS API
-# ============================================================================
+# -----------------------------------------------------------------------------
+# API Endpoints
+# -----------------------------------------------------------------------------
 
 @app.get("/health", tags=["System"])
+@app.get("/api/health", tags=["System"])
 def health_check():
     """
-    Health check del server.
+    Comprehensive health check endpoint for production monitoring.
     
-    Verifica che il servizio sia attivo e funzionante.
+    Checks:
+        - Database connectivity
+        - AI service availability
+        - Cache status
+        - System readiness
     
     Returns:
-        dict: Status del servizio
+        dict: Detailed service status for load balancers and monitoring
     """
-    return {"status": "healthy", "service": "DataPulse API", "version": "1.0.0"}
+    import time
+    from datetime import datetime, timezone
+    
+    start_time = time.time()
+    checks = {}
+    overall_status = "healthy"
+    
+    # Database check
+    try:
+        with Session() as session:
+            session.execute(text("SELECT 1"))
+        checks["database"] = {"status": "healthy", "latency_ms": 0}
+    except Exception as e:
+        checks["database"] = {"status": "unhealthy", "error": str(e)[:100]}
+        overall_status = "degraded"
+    
+    # AI service check
+    try:
+        from backend.ai_service import model
+        if model is not None:
+            checks["ai_service"] = {"status": "healthy", "model": "gemini-2.0-flash-exp"}
+        else:
+            checks["ai_service"] = {"status": "degraded", "error": "API key not configured"}
+            if overall_status == "healthy":
+                overall_status = "degraded"
+    except Exception as e:
+        checks["ai_service"] = {"status": "unhealthy", "error": str(e)[:100]}
+        overall_status = "degraded"
+    
+    # Cache check
+    try:
+        cache_info = get_cache_stats()
+        checks["cache"] = {
+            "status": "healthy",
+            "size": cache_info.get("size", 0),
+            "max_size": cache_info.get("max_size", 100)
+        }
+    except Exception as e:
+        checks["cache"] = {"status": "degraded", "error": str(e)[:50]}
+    
+    response_time = round((time.time() - start_time) * 1000, 2)
+    
+    return {
+        "status": overall_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "service": "DataPulse API",
+        "version": "2.1.0",
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "response_time_ms": response_time,
+        "checks": checks
+    }
 
 
 @app.get("/api/cache/stats", tags=["Cache"])
 def cache_stats():
     """
-    Statistiche cache SQL.
-    
-    Restituisce informazioni sulla cache delle query SQL generate.
+    Get SQL cache statistics.
     
     Returns:
-        dict: size, max_size, ttl_seconds
+        dict: Cache size, max_size, ttl_seconds
     """
     return get_cache_stats()
 
@@ -200,141 +274,130 @@ def cache_stats():
 @app.post("/api/cache/clear", tags=["Cache"])
 def cache_clear():
     """
-    Svuota la cache SQL.
-    
-    Rimuove tutte le query memorizzate nella cache.
+    Clear the SQL cache.
     
     Returns:
-        dict: Messaggio di conferma
+        dict: Confirmation message
     """
     clear_cache()
-    return {"message": "Cache svuotata con successo"}
+    return {"message": "Cache cleared successfully"}
 
 
 @app.get("/api/schema/tables", tags=["Schema"])
 def get_allowed_tables():
     """
-    Lista tabelle permesse.
-    
-    Restituisce l'elenco delle tabelle accessibili tramite l'API.
+    Get list of allowed tables.
     
     Returns:
-        dict: Lista delle tabelle nella whitelist
+        dict: List of tables in the whitelist
     """
     return {"allowed_tables": list(ALLOWED_TABLES)}
 
 
 @app.post("/api/analyze", tags=["Analysis"], response_model=None)
-def analyze(data: dict):
+def analyze(request: AnalyzeRequest):
     """
-    Analizza una domanda in linguaggio naturale.
+    Analyze a natural language question.
     
-    Questo endpoint:
-    1. Sanitizza l'input dell'utente (protezione XSS/injection)
-    2. Genera SQL tramite AI (Google Gemini)
-    3. Valida la sicurezza della query (whitelist tabelle, blocco operazioni pericolose)
-    4. Esegue la query sul database
-    5. Restituisce i risultati in formato JSON
+    This endpoint:
+    1. Sanitizes user input (XSS/injection protection)
+    2. Generates SQL via AI (Google Gemini)
+    3. Validates query security (table whitelist, blocks dangerous operations)
+    4. Executes the query on the database
+    5. Returns results in JSON format
     
     Args:
-        data: dict con chiave "question" contenente la domanda
+        request: AnalyzeRequest with question field
     
     Returns:
-        - Successo: {"generated_sql": str, "data": list, "row_count": int}
-        - Errore: {"error": str, "generated_sql": str|None, "suggestion": str|None}
-    
-    Examples:
-        >>> {"question": "How many customers are there?"}
-        {"generated_sql": "SELECT COUNT(*) FROM customers;", "data": [{"COUNT(*)": 793}], "row_count": 1}
+        Success: {"generated_sql": str, "data": list, "row_count": int}
+        Error: {"error": str, "generated_sql": str|None, "suggestion": str|None}
     """
-    raw_question = data.get("question", "")
+    raw_question = request.question
     
-    # Sanitizza input
+    # Sanitize input
     question = sanitize_input(raw_question)
     
-    # Validazione input
+    # Input validation
     if not question:
-        logger.warning("Ricevuta domanda vuota")
+        logger.warning("Empty question received")
         return {
-            "error": "La domanda non può essere vuota",
+            "error": "Question cannot be empty",
             "generated_sql": None,
-            "suggestion": "Prova con una domanda come 'Quanti clienti ci sono?'"
+            "suggestion": "Try a question like 'How many customers are there?'"
         }
     
     if len(question) > 500:
-        logger.warning(f"Domanda troppo lunga: {len(question)} caratteri")
+        logger.warning(f"Question too long: {len(question)} characters")
         return {
-            "error": "La domanda è troppo lunga (max 500 caratteri)",
+            "error": "Question is too long (max 500 characters)",
             "generated_sql": None
         }
     
-    logger.info(f"Elaborazione domanda: {question[:50]}...")
+    logger.info(f"Processing question: {question[:50]}...")
     
-    # Genera SQL con AI
+    # Generate SQL with AI
     try:
         sql = generate_sql(question, db_schema)
     except Exception as e:
-        logger.error(f"Errore generazione SQL: {str(e)}")
+        logger.error(f"SQL generation error: {str(e)}")
         return {
-            "error": "Errore durante la generazione della query SQL",
+            "error": "Error generating SQL query",
             "generated_sql": None,
-            "suggestion": "Verifica che la chiave API sia configurata correttamente"
+            "suggestion": "Verify that the API key is configured correctly"
         }
     
-    # Valida sicurezza SQL con validazione strict
+    # Validate SQL security with strict validation
     is_valid, error_msg = validate_sql_strict(sql)
     if not is_valid:
-        logger.warning(f"SQL non sicuro generato: {sql[:100]} - Motivo: {error_msg}")
+        logger.warning(f"Unsafe SQL generated: {sql[:100]} - Reason: {error_msg}")
         return {
-            "error": f"La query generata non è sicura: {error_msg}",
+            "error": f"Generated query is not secure: {error_msg}",
             "generated_sql": sql,
-            "suggestion": "Prova a riformulare la domanda in modo più specifico"
+            "suggestion": "Try rephrasing the question more specifically"
         }
     
-    logger.info(f"SQL generato e validato: {sql[:100]}...")
+    logger.info(f"SQL generated and validated: {sql[:100]}...")
     
-    # Esegui query
-    session = Session()
+    # Execute query with context manager to prevent session leaks
     try:
-        result = session.execute(text(sql)).mappings().all()
-        
-        # Limita numero di righe
-        if len(result) > MAX_ROWS:
-            logger.info(f"Risultati troncati da {len(result)} a {MAX_ROWS}")
-            result = result[:MAX_ROWS]
-        
-        # Converti risultati in lista di dict per JSON serialization
-        data_list = [dict(row) for row in result]
-        
-        logger.info(f"Query eseguita con successo: {len(data_list)} righe")
-        
-        return {
-            "generated_sql": sql,
-            "data": data_list,
-            "row_count": len(data_list)
-        }
-        
+        with Session() as session:
+            result = session.execute(text(sql)).mappings().all()
+            
+            # Limit rows
+            if len(result) > MAX_ROWS:
+                logger.info(f"Results truncated from {len(result)} to {MAX_ROWS}")
+                result = result[:MAX_ROWS]
+            
+            # Convert results to list of dicts for JSON serialization
+            data_list = [dict(row) for row in result]
+            
+            logger.info(f"Query executed successfully: {len(data_list)} rows")
+            
+            return {
+                "generated_sql": sql,
+                "data": data_list,
+                "row_count": len(data_list)
+            }
     except Exception as e:
-        logger.error(f"Errore esecuzione query: {str(e)}")
+        logger.error(f"Query execution error: {str(e)}")
         return {
-            "error": f"Errore nell'esecuzione della query: {str(e)}",
+            "error": f"Error executing query: {str(e)}",
             "generated_sql": sql,
-            "suggestion": "La query potrebbe fare riferimento a tabelle o colonne inesistenti"
+            "suggestion": "The query may reference non-existent tables or columns"
         }
-    finally:
-        session.close()
 
 
-# ============================================================================
-# ENDPOINTS SESSIONE E DATABASE PERSONALIZZATI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Session and Custom Database Endpoints
+# -----------------------------------------------------------------------------
 
 @app.post("/api/session/create", tags=["Session"])
 def create_session():
     """
-    Crea una nuova sessione utente.
+    Create a new user session.
     
-    Ogni sessione ha il proprio database (inizialmente il demo).
+    Each session has its own database (initially the demo database).
     
     Returns:
         dict: session_id, db_type, tables
@@ -346,24 +409,24 @@ def create_session():
         "session_id": session_id,
         "db_type": session["db_type"],
         "tables": session["tables"],
-        "message": "Sessione creata con database demo"
+        "message": "Session created with demo database"
     }
 
 
 @app.get("/api/session/{session_id}/info", tags=["Session"])
 def get_session_info(session_id: str):
     """
-    Ottiene informazioni sulla sessione.
+    Get session information.
     
     Args:
-        session_id: ID della sessione
+        session_id: Session ID
     
     Returns:
-        dict: Informazioni sulla sessione
+        dict: Session information
     """
     session = session_manager.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sessione non trovata o scaduta")
+        raise HTTPException(status_code=404, detail="Session not found or expired")
     
     return {
         "session_id": session_id,
@@ -379,22 +442,22 @@ async def upload_csv_files(
     files: List[UploadFile] = File(...)
 ):
     """
-    Carica file CSV/Excel e crea un database personalizzato.
+    Upload CSV/Excel files and create a custom database.
     
-    Accetta file .csv, .xlsx, .xls
+    Accepts .csv, .xlsx, .xls files
     
     Args:
-        session_id: ID della sessione
-        files: Lista di file da caricare
+        session_id: Session ID
+        files: List of files to upload
     
     Returns:
-        dict: Risultato dell'operazione
+        dict: Operation result
     """
     session = session_manager.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sessione non trovata o scaduta")
+        raise HTTPException(status_code=404, detail="Session not found or expired")
     
-    # Valida file
+    # Validate files
     allowed_extensions = {'.csv', '.xlsx', '.xls'}
     file_data = []
     
@@ -403,22 +466,22 @@ async def upload_csv_files(
         if ext not in allowed_extensions:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Formato file non supportato: {file.filename}. Usa CSV o Excel."
+                detail=f"Unsupported file format: {file.filename}. Use CSV or Excel."
             )
         
         content = await file.read()
         if len(content) > 50 * 1024 * 1024:  # 50 MB
-            raise HTTPException(status_code=400, detail=f"File troppo grande: {file.filename}")
+            raise HTTPException(status_code=400, detail=f"File too large: {file.filename}")
         
         file_data.append((file.filename, content))
     
-    # Processa file
+    # Process files
     success, message = session_manager.upload_csv(session_id, file_data)
     
     if not success:
         raise HTTPException(status_code=400, detail=message)
     
-    # Ottieni info aggiornate
+    # Get updated info
     session = session_manager.get_session(session_id)
     
     return {
@@ -436,41 +499,41 @@ async def upload_sqlite_file(
     file: UploadFile = File(...)
 ):
     """
-    Carica un database SQLite esistente.
+    Upload an existing SQLite database.
     
-    Accetta file .db, .sqlite, .sqlite3
+    Accepts .db, .sqlite, .sqlite3 files
     
     Args:
-        session_id: ID della sessione
-        file: File database da caricare
+        session_id: Session ID
+        file: Database file to upload
     
     Returns:
-        dict: Risultato dell'operazione
+        dict: Operation result
     """
     session = session_manager.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sessione non trovata o scaduta")
+        raise HTTPException(status_code=404, detail="Session not found or expired")
     
-    # Valida file
+    # Validate file
     allowed_extensions = {'.db', '.sqlite', '.sqlite3'}
     ext = '.' + file.filename.split('.')[-1].lower() if '.' in file.filename else ''
     if ext not in allowed_extensions:
         raise HTTPException(
             status_code=400, 
-            detail=f"Formato file non supportato. Usa .db, .sqlite o .sqlite3"
+            detail="Unsupported file format. Use .db, .sqlite or .sqlite3"
         )
     
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:  # 50 MB
-        raise HTTPException(status_code=400, detail="File troppo grande (max 50 MB)")
+        raise HTTPException(status_code=400, detail="File too large (max 50 MB)")
     
-    # Processa file
+    # Process file
     success, message = session_manager.upload_sqlite(session_id, file.filename, content)
     
     if not success:
         raise HTTPException(status_code=400, detail=message)
     
-    # Ottieni info aggiornate
+    # Get updated info
     session = session_manager.get_session(session_id)
     
     return {
@@ -485,13 +548,13 @@ async def upload_sqlite_file(
 @app.post("/api/session/{session_id}/reset", tags=["Session"])
 def reset_session_to_demo(session_id: str):
     """
-    Resetta la sessione al database demo.
+    Reset session to the demo database.
     
     Args:
-        session_id: ID della sessione
+        session_id: Session ID
     
     Returns:
-        dict: Risultato dell'operazione
+        dict: Operation result
     """
     success, message = session_manager.reset_to_demo(session_id)
     
@@ -511,70 +574,80 @@ def reset_session_to_demo(session_id: str):
 @app.post("/api/session/{session_id}/analyze", tags=["Analysis"])
 def analyze_with_session(session_id: str, data: dict):
     """
-    Analizza una domanda usando il database della sessione.
+    Analyze a question using the session's database.
     
-    Questo endpoint usa il database personalizzato caricato dall'utente,
-    o il database demo se nessun file è stato caricato.
+    This endpoint uses the custom database uploaded by the user,
+    or the demo database if no file was uploaded.
     
     Args:
-        session_id: ID della sessione
-        data: dict con chiave "question"
+        session_id: Session ID
+        data: dict with "question" key
     
     Returns:
-        Risultato dell'analisi o errore
+        Analysis result or error
     """
     session = session_manager.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sessione non trovata o scaduta")
+        raise HTTPException(status_code=404, detail="Session not found or expired")
     
     raw_question = data.get("question", "")
     question = sanitize_input(raw_question)
     
     if not question:
         return {
-            "error": "La domanda non può essere vuota",
+            "error": "Question cannot be empty",
             "generated_sql": None,
-            "suggestion": "Prova con una domanda sui tuoi dati"
+            "suggestion": "Try asking a question about your data"
         }
     
     if len(question) > 500:
         return {
-            "error": "La domanda è troppo lunga (max 500 caratteri)",
+            "error": "Question is too long (max 500 characters)",
             "generated_sql": None
         }
     
-    logger.info(f"[Session {session_id[:8]}] Elaborazione domanda: {question[:50]}...")
+    logger.info(f"[Session {session_id[:8]}] Processing question: {question[:50]}...")
     
-    # Genera SQL con schema dinamico
+    # Generate SQL with dynamic schema
     try:
         sql = generate_sql_dynamic(question, session["schema"], session["tables"])
     except Exception as e:
-        logger.error(f"Errore generazione SQL: {str(e)}")
+        logger.error(f"SQL generation error: {str(e)}")
         return {
-            "error": "Errore durante la generazione della query SQL",
+            "error": "Error generating SQL query",
             "generated_sql": None,
-            "suggestion": "Verifica che la chiave API sia configurata correttamente"
+            "suggestion": "Verify that the API key is configured correctly"
         }
     
-    # Per database custom, non usiamo la validazione strict delle tabelle
-    # ma solo controlli di base
-    if "DROP" in sql.upper() or "DELETE" in sql.upper() or "INSERT" in sql.upper() or "UPDATE" in sql.upper():
+    # If the generator returned an explicit error message, surface it clearly
+    if isinstance(sql, str) and sql.lower().startswith("error:"):
+        logger.warning(f"[Session {session_id[:8]}] SQL generation error returned: {sql}")
         return {
-            "error": "Query non permessa: solo SELECT è consentito",
+            "error": sql[6:].strip(),
+            "generated_sql": None,
+            "suggestion": "If AI is not configured, a fallback SQL generator will be used; otherwise, review the question or set GOOGLE_API_KEY in .env"
+        }
+
+    # Security validation for dynamic databases (without table whitelist)
+    is_valid, error_msg = validate_sql_dynamic(sql)
+    if not is_valid:
+        logger.warning(f"[Session {session_id[:8]}] Unsafe SQL blocked: {error_msg}")
+        return {
+            "error": f"Query not allowed: {error_msg}",
             "generated_sql": sql,
-            "suggestion": "Riformula la domanda per ottenere dati, non modificarli"
+            "suggestion": "Rephrase the question to retrieve data only"
         }
     
-    logger.info(f"SQL generato: {sql[:100]}...")
+    logger.info(f"SQL generated: {sql[:100]}...")
     
-    # Esegui query sul database della sessione
+    # Execute query on session database
     success, result = execute_query_on_session(session_id, sql, MAX_ROWS)
     
     if not success:
         return {
-            "error": f"Errore nell'esecuzione della query: {result}",
+            "error": f"Error executing query: {result}",
             "generated_sql": sql,
-            "suggestion": "La query potrebbe fare riferimento a tabelle o colonne inesistenti"
+            "suggestion": "The query may reference non-existent tables or columns"
         }
     
     logger.info(f"Query eseguita con successo: {len(result)} righe")
@@ -677,18 +750,18 @@ def logout_user(authorization: Optional[str] = Header(None)):
 # ============================================================================
 
 @app.post("/api/dashboard/analyze", tags=["Dashboard"])
-def analyze_for_dashboard(data: DashboardRequest):
+def analyze_for_dashboard(data: DashboardCreateRequest):
     """
-    Analizza i dati e suggerisce visualizzazioni.
+    Analyze data and suggest visualizations.
     
     Args:
-        data: Dati da analizzare
+        data: Data to analyze
     
     Returns:
-        dict: Analisi dei dati e suggerimenti grafici
+        dict: Data analysis and chart suggestions
     """
     if not data.data:
-        raise HTTPException(status_code=400, detail="Nessun dato fornito")
+        raise HTTPException(status_code=400, detail="No data provided")
     
     analysis = dashboard_manager.analyze_data(data.data)
     suggestions = dashboard_manager.suggest_visualizations(data.data, analysis)
@@ -700,18 +773,18 @@ def analyze_for_dashboard(data: DashboardRequest):
 
 
 @app.post("/api/dashboard/create", tags=["Dashboard"])
-def create_dashboard(data: DashboardRequest):
+def create_dashboard(data: DashboardCreateRequest):
     """
-    Crea una dashboard automatica dai dati.
+    Create an automatic dashboard from data.
     
     Args:
-        data: Dati e titolo
+        data: Data and title
     
     Returns:
-        dict: Layout dashboard con widget
+        dict: Dashboard layout with widgets
     """
     if not data.data:
-        raise HTTPException(status_code=400, detail="Nessun dato fornito")
+        raise HTTPException(status_code=400, detail="No data provided")
     
     dashboard = dashboard_manager.create_dashboard(
         data=data.data,
@@ -864,7 +937,7 @@ def generate_report(data: dict):
     include_summary = data.get("include_summary", True)
     
     if not report_data:
-        raise HTTPException(status_code=400, detail="Nessun dato per il report")
+        raise HTTPException(status_code=400, detail="No data provided for report")
     
     try:
         content = export_service.generate_report(

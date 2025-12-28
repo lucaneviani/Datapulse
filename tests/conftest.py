@@ -1,20 +1,20 @@
 """
-Configurazione Pytest per DataPulse
-====================================
-Fixtures e configurazioni condivise per i test.
+DataPulse Test Configuration
+
+Shared pytest fixtures and configuration.
 """
 
 import pytest
 import sys
 import os
 
-# Aggiungi il path del progetto al PYTHONPATH
+# Add project path to PYTHONPATH
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @pytest.fixture
 def sample_db_schema():
-    """Schema DB di esempio per test."""
+    """Sample database schema for testing."""
     return """
     customers(id, name, segment, country, city, state, postal_code, region)
     products(id, name, category, sub_category)
@@ -25,7 +25,7 @@ def sample_db_schema():
 
 @pytest.fixture
 def valid_sql_queries():
-    """Lista di query SQL valide per test."""
+    """List of valid SQL queries for testing."""
     return [
         "SELECT * FROM customers",
         "SELECT COUNT(*) FROM orders",
@@ -36,7 +36,7 @@ def valid_sql_queries():
 
 @pytest.fixture
 def invalid_sql_queries():
-    """Lista di query SQL non valide (pericolose) per test."""
+    """List of invalid (dangerous) SQL queries for testing."""
     return [
         "INSERT INTO customers VALUES (1, 'Test')",
         "UPDATE customers SET name = 'Hacked'",
@@ -49,7 +49,7 @@ def invalid_sql_queries():
 
 @pytest.fixture
 def sample_questions():
-    """Domande di esempio per test."""
+    """Sample questions for testing."""
     return [
         "How many customers are there?",
         "What are the total sales by region?",

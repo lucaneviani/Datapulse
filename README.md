@@ -1,76 +1,93 @@
-# 📊 DataPulse
+# DataPulse
 
 <div align="center">
 
-**AI-Powered Business Intelligence Tool**
+**AI-Powered Business Intelligence Platform**
 
-*Interroga i tuoi dati aziendali usando il linguaggio naturale*
+*Query your data using natural language*
 
-[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.121+-green.svg)](https://fastapi.tiangolo.com)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.51+-red.svg)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://github.com/YOUR_USERNAME/Datapulse/workflows/Tests/badge.svg)](https://github.com/YOUR_USERNAME/Datapulse/actions)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 </div>
 
 ---
 
-## 🎯 Panoramica
+## Overview
 
-**DataPulse** è un'applicazione di business intelligence che permette di interrogare database SQL usando domande in linguaggio naturale. Grazie all'integrazione con Google Gemini AI, converte automaticamente le tue domande in query SQL sicure e restituisce i risultati in forma tabellare o grafica.
+**DataPulse** is a business intelligence application that allows you to query SQL databases using natural language questions. Powered by Google Gemini AI, it automatically converts your questions into secure SQL queries and returns results in tabular or graphical format.
 
-### ✨ Funzionalità Principali
+### Key Features
 
-- 🤖 **Generazione SQL con AI** - Converti domande naturali in query SQL valide
-- 🔒 **Sicurezza Integrata** - Validazione SQL, whitelist tabelle, protezione injection
-- 📈 **Visualizzazioni Automatiche** - Grafici dinamici con Plotly (bar, pie, line)
-- ⚡ **Caching Intelligente** - Cache query per prestazioni ottimali
-- 🛡️ **Rate Limiting** - Protezione API key con limiti richieste
-- 📊 **Dashboard Interattiva** - Interfaccia Streamlit moderna e responsive
+- **AI-Powered SQL Generation** - Convert natural language to valid SQL queries
+- **Built-in Security** - SQL validation, table whitelist, injection protection
+- **Automatic Visualizations** - Dynamic charts with Plotly (bar, pie, line)
+- **Smart Caching** - Query caching for optimal performance
+- **Rate Limiting** - API protection with request limits
+- **Interactive Dashboard** - Modern, responsive Streamlit interface
+- **Multi-language Support** - Available in IT, EN, ES, FR, DE
+- **Custom Database Upload** - Support for CSV, Excel, and SQLite files
 
 ---
 
-## 🏗️ Architettura
+## Architecture
 
 ```
 DataPulse/
-├── backend/                 # API FastAPI
-│   ├── main.py             # Endpoint principali
-│   ├── ai_service.py       # Integrazione Gemini AI
-│   ├── models.py           # Modelli SQLAlchemy
-│   └── requirements.txt    # Dipendenze Python
-├── frontend/               # UI Streamlit
-│   └── app.py              # Dashboard interattiva
-├── data/                   # Database e dati
-│   ├── database.db         # SQLite database
-│   ├── populate_db.py      # Script popolamento
-│   └── superstore_orders.csv
-├── tests/                  # Unit tests
-│   ├── test_ai_service.py  # Test AI e validazione
-│   ├── test_api.py         # Test endpoint API
-│   └── conftest.py         # Fixtures pytest
-├── .env.example            # Template variabili ambiente
-└── README.md               # Questa documentazione
+├── backend/                 # FastAPI REST API
+│   ├── main.py             # API endpoints and lifespan
+│   ├── config.py           # Centralized configuration (Pydantic)
+│   ├── logger.py           # Structured logging
+│   ├── ai_service.py       # Gemini AI integration
+│   ├── auth.py             # JWT authentication
+│   ├── schemas.py          # Pydantic request/response models
+│   ├── middleware.py       # Error handling middleware
+│   ├── dashboard.py        # Dashboard generation
+│   ├── export_service.py   # Export functionality
+│   ├── database_manager.py # Session management
+│   ├── i18n.py             # Internationalization
+│   ├── models.py           # SQLAlchemy models
+│   └── requirements.txt    # Python dependencies
+├── frontend/               # Streamlit UI
+│   └── app.py              # Interactive dashboard
+├── data/                   # Database files
+│   └── database.db         # SQLite database
+├── tests/                  # Unit tests (184+ tests)
+│   ├── test_ai_service.py  # AI service tests
+│   ├── test_api.py         # API endpoint tests
+│   ├── test_auth.py        # Authentication tests
+│   ├── test_database_manager.py
+│   ├── test_middleware.py  # Middleware tests
+│   └── test_schemas.py     # Schema validation tests
+├── Dockerfile              # Multi-stage production build
+├── docker-compose.yml      # Container orchestration
+├── .env.template           # Environment template
+├── DEPLOY_CHECKLIST.md     # Production deployment guide
+└── README.md
 ```
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisiti
+### Prerequisites
 
 - **Python 3.12+** ([Download](https://python.org))
 - **Git** ([Download](https://git-scm.com))
-- **API Key Google Gemini** ([Ottieni qui](https://aistudio.google.com/app/apikey))
+- **Google Gemini API Key** ([Get one here](https://aistudio.google.com/app/apikey))
 
-### 1. Clona il Repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/lucaneviani/Datapulse.git
 cd Datapulse
 ```
 
-### 2. Crea Virtual Environment
+### 2. Create Virtual Environment
 
 ```bash
 # Windows
@@ -82,76 +99,106 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 3. Installa Dipendenze
+### 3. Install Dependencies
 
 ```bash
 pip install -r backend/requirements.txt
 ```
 
-### 4. Configura API Key
+### 4. Configure API Key
 
 ```bash
-# Copia il template
+# Copy the template
 cp .env.example .env
 
-# Modifica .env con la tua chiave API
+# Edit .env with your API key
 # GOOGLE_API_KEY=your_gemini_api_key_here
 ```
 
-> 💡 **Come ottenere la chiave API:**
-> 1. Vai su [Google AI Studio](https://aistudio.google.com/app/apikey)
-> 2. Crea un nuovo progetto o seleziona esistente
-> 3. Genera una nuova API key
-> 4. Copia la chiave nel file `.env`
+> **How to get an API key:**
+> 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+> 2. Create a new project or select existing
+> 3. Generate a new API key
+> 4. Paste the key in your `.env` file
 
-### 5. Popola il Database (opzionale)
+### 5. Populate Database (optional)
 
-Se il database non esiste o vuoi ripopolarlo:
+If the database doesn't exist or you want to repopulate it:
 
 ```bash
 python data/populate_db.py
 ```
 
-### 6. Avvia l'Applicazione
+### 6. Start the Application
 
-**Terminal 1 - Backend:**
+The repository includes a small launcher that starts both backend and frontend with sensible defaults and environment handling.
+
+Recommended (single command):
+
+- Windows (PowerShell):
+```powershell
+# From project root
+.\start.ps1
+```
+
+- macOS / Linux:
+```bash
+# From project root
+./start.sh
+```
+
+Or use the Python launcher (cross-platform):
+```bash
+# From project root
+python scripts/run_local.py
+```
+
+The launcher will:
+- load `.env` (if present)
+- select default ports (`8000` backend, `8501` frontend) or pick free ports if those are in use
+- start the backend (uvicorn) and wait for the health endpoint
+- start the frontend (Streamlit) and open the UI in your browser
+
+If you prefer manual start, you can still run:
+
+**Backend (manual):**
 ```bash
 python -m uvicorn backend.main:app --reload
 ```
-> Server disponibile su: http://127.0.0.1:8000
 
-**Terminal 2 - Frontend:**
+**Frontend (manual):**
 ```bash
 streamlit run frontend/app.py
 ```
-> Dashboard disponibile su: http://localhost:8501
+
+> API available at: http://127.0.0.1:8000 (unless launcher selected another free port)
 
 ---
 
-## 💻 Utilizzo
+## Usage
 
-### Interfaccia Web (Streamlit)
+### Web Interface (Streamlit)
 
-1. Apri http://localhost:8501 nel browser
-2. Inserisci una domanda nel campo di testo, es:
-   - *"Quanti clienti ci sono?"*
-   - *"Qual è il totale delle vendite per regione?"*
-   - *"Mostra i top 5 prodotti per profitto"*
-3. Clicca **Analizza**
-4. Visualizza SQL generato e risultati (tabella o grafico)
+1. Open http://localhost:8501 in your browser
+2. Enter a question in the text field, e.g.:
+   - *"How many customers are there?"*
+   - *"What are the total sales by region?"*
+   - *"Show top 5 products by profit"*
+3. Click **Analyze**
+4. View generated SQL and results (table or chart)
 
-### API REST (Swagger)
+### REST API (Swagger)
 
-Accedi alla documentazione interattiva: http://127.0.0.1:8000/docs
+Access interactive documentation at: http://127.0.0.1:8000/docs
 
-**Esempio richiesta:**
+**Example request:**
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/analyze" \
   -H "Content-Type: application/json" \
   -d '{"question": "How many customers are there?"}'
 ```
 
-**Esempio risposta:**
+**Example response:**
 ```json
 {
   "generated_sql": "SELECT COUNT(*) as customer_count FROM customers;",
@@ -162,113 +209,129 @@ curl -X POST "http://127.0.0.1:8000/api/analyze" \
 
 ---
 
-## 📊 Schema Database
+## Database Schema
 
-Il database include 4 tabelle principali:
+The database includes 4 main tables:
 
-| Tabella | Descrizione | Colonne Principali |
-|---------|-------------|-------------------|
-| `customers` | Anagrafica clienti | id, name, segment, region, country |
-| `products` | Catalogo prodotti | id, name, category, sub_category |
-| `orders` | Ordini | id, customer_id, order_date, total |
-| `order_items` | Dettaglio ordini | id, order_id, product_id, quantity, profit |
+| Table | Description | Main Columns |
+|-------|-------------|---------------|
+| `customers` | Customer records | id, name, segment, region, country |
+| `products` | Product catalog | id, name, category, sub_category |
+| `orders` | Orders | id, customer_id, order_date, total |
+| `order_items` | Order details | id, order_id, product_id, quantity, profit |
 
-### Esempi di Domande
+### Example Questions
 
-| Domanda | SQL Generato |
-|---------|--------------|
-| Quanti clienti ci sono? | `SELECT COUNT(*) FROM customers;` |
-| Vendite per regione | `SELECT region, SUM(total) FROM orders JOIN customers...` |
-| Top 5 prodotti | `SELECT name, SUM(profit) FROM products JOIN order_items... LIMIT 5` |
-| Ordini 2023 | `SELECT * FROM orders WHERE strftime('%Y', order_date) = '2023'` |
-
----
-
-## 🔒 Sicurezza
-
-DataPulse implementa multiple protezioni:
-
-- ✅ **Solo SELECT** - Query di modifica (INSERT, UPDATE, DELETE) bloccate
-- ✅ **Whitelist Tabelle** - Solo tabelle autorizzate accessibili
-- ✅ **Blocco UNION** - Previene lettura dati non autorizzati
-- ✅ **Sanitizzazione Input** - Protezione XSS e injection
-- ✅ **Rate Limiting** - 30 richieste/minuto per proteggere API
-- ✅ **No SQL Comments** - Commenti SQL bloccati
+| Question | Generated SQL |
+|----------|---------------|
+| How many customers? | `SELECT COUNT(*) FROM customers;` |
+| Sales by region | `SELECT region, SUM(total) FROM orders JOIN customers...` |
+| Top 5 products | `SELECT name, SUM(profit) FROM products JOIN order_items... LIMIT 5` |
+| 2023 orders | `SELECT * FROM orders WHERE strftime('%Y', order_date) = '2023'` |
 
 ---
 
-## 🧪 Testing
+## Security
 
-Esegui tutti i test:
+DataPulse implements multiple protection layers:
+
+- **SELECT Only** - Modification queries (INSERT, UPDATE, DELETE) are blocked
+- **Table Whitelist** - Only authorized tables are accessible
+- **UNION Blocking** - Prevents unauthorized data access
+- **Input Sanitization** - XSS and injection protection
+- **Rate Limiting** - 30 requests/minute to protect the API
+- **No SQL Comments** - SQL comments are blocked
+
+---
+
+## Testing
+
+Run all tests:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-Output atteso: **57 test passati**
+### Test Coverage
 
-### Coverage dei Test
-
-- `test_ai_service.py` - Validazione SQL, cache, rate limiting, sanitizzazione
-- `test_api.py` - Endpoint API, error handling, integrazione
+- `test_ai_service.py` - SQL validation, cache, rate limiting, sanitization
+- `test_api.py` - API endpoints, error handling, integration
 
 ---
 
-## 📁 API Endpoints
+## API Endpoints
 
-| Metodo | Endpoint | Descrizione |
+| Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/analyze` | Genera SQL e restituisce dati |
-| `GET` | `/health` | Health check del server |
-| `GET` | `/api/cache/stats` | Statistiche cache |
-| `POST` | `/api/cache/clear` | Svuota cache |
-| `GET` | `/api/schema/tables` | Lista tabelle permesse |
+| `POST` | `/api/analyze` | Generate SQL and return data |
+| `GET` | `/health` | Server health check |
+| `GET` | `/api/cache/stats` | Cache statistics |
+| `POST` | `/api/cache/clear` | Clear cache |
+| `GET` | `/api/schema/tables` | List allowed tables |
+| `POST` | `/api/auth/login` | User login |
+| `POST` | `/api/auth/register` | User registration |
+| `POST` | `/api/export` | Export data |
 
 ---
 
-## ⚙️ Configurazione
+## Configuration
 
-### Variabili Ambiente (.env)
+### Environment Variables (.env)
 
-| Variabile | Descrizione | Default |
-|-----------|-------------|---------|
-| `GOOGLE_API_KEY` | API key Google Gemini | *obbligatorio* |
-| `DATAPULSE_BACKEND_URL` | URL backend per frontend | `http://127.0.0.1:8000/api/analyze` |
-| `DATAPULSE_MAX_ROWS` | Max righe restituite | `1000` |
-| `DATAPULSE_CACHE_TTL` | TTL cache in secondi | `3600` |
-| `DATAPULSE_RATE_LIMIT` | Richieste/minuto | `30` |
+| Variable | Description | Default |
+|----------|-------------|--------|
+| `GOOGLE_API_KEY` | Google Gemini API key | *required* |
+| `JWT_SECRET_KEY` | JWT signing key | *auto-generated* |
+| `DATAPULSE_MAX_ROWS` | Max rows returned | `1000` |
+| `DATAPULSE_CACHE_TTL` | Cache TTL in seconds | `3600` |
+| `DATAPULSE_RATE_LIMIT` | Requests per minute | `30` |
 
 ---
 
-## 🛠️ Tecnologie
+## Tech Stack
 
-| Componente | Tecnologia |
-|------------|------------|
+| Component | Technology |
+|-----------|------------|
 | Backend | FastAPI, SQLAlchemy, Uvicorn |
 | Frontend | Streamlit, Plotly, Pandas |
 | AI | Google Gemini (gemini-2.0-flash-exp) |
 | Database | SQLite |
+| Auth | JWT, bcrypt |
 | Testing | Pytest |
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-1. Fork del repository
-2. Crea un branch (`git checkout -b feature/nuova-feature`)
-3. Commit delle modifiche (`git commit -m 'Aggiunta nuova feature'`)
-4. Push al branch (`git push origin feature/nuova-feature`)
-5. Apri una Pull Request
+We welcome contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+Quick start:
+1. Fork the repository
+2. Create a branch (`git checkout -b feature/new-feature`)
+3. Commit your changes (`git commit -m 'Add new feature'`)
+4. Push to the branch (`git push origin feature/new-feature`)
+5. Open a Pull Request
+
+Please read our [Code of Conduct](CODE_OF_CONDUCT.md) and [Security Policy](SECURITY.md).
 
 ---
 
-## 📝 License
+## Support
 
-Questo progetto è distribuito sotto licenza MIT. Vedi il file [LICENSE](LICENSE) per dettagli.
+- 📖 [Documentation](README.md)
+- 🐛 [Report a Bug](https://github.com/YOUR_USERNAME/Datapulse/issues/new?template=bug_report.md)
+- 💡 [Request a Feature](https://github.com/YOUR_USERNAME/Datapulse/issues/new?template=feature_request.md)
+- 💬 [Discussions](https://github.com/YOUR_USERNAME/Datapulse/discussions)
 
 ---
 
-## 👨‍💻 Autore
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
+## Author
 
 **Luca Neviani** - [GitHub](https://github.com/lucaneviani)
 
@@ -276,6 +339,6 @@ Questo progetto è distribuito sotto licenza MIT. Vedi il file [LICENSE](LICENSE
 
 <div align="center">
 
-Made with ❤️ using visual studio code
+Built with ❤️ using FastAPI, Streamlit, and Google Gemini AI
 
 </div>

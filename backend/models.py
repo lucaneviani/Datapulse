@@ -1,55 +1,74 @@
+"""
+DataPulse Database Models
+
+SQLAlchemy ORM models for the demo Superstore dataset.
+
+Tables:
+    - customers: Customer records with demographics
+    - products: Product catalog with categories
+    - orders: Order headers with dates and totals
+    - order_items: Order line items with sales data
+
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
+"""
+
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
 
-# Tabella Customers (da Customer ID, Name, etc.)
+
 class Customer(Base):
+    """Customer entity with geographic and segment information."""
     __tablename__ = 'customers'
-    id = Column(String, primary_key=True)  # Customer ID (stringa unica)
-    name = Column(String)  # Customer Name
-    segment = Column(String)  # Segment
-    country = Column(String)  # Country
-    city = Column(String)  # City
-    state = Column(String)  # State
-    postal_code = Column(String)  # Postal Code
-    region = Column(String)  # Region
+    id = Column(String, primary_key=True)
+    name = Column(String)
+    segment = Column(String)
+    country = Column(String)
+    city = Column(String)
+    state = Column(String)
+    postal_code = Column(String)
+    region = Column(String)
 
-# Tabella Products (da Product ID, Name, etc.)
+
 class Product(Base):
+    """Product entity with category hierarchy."""
     __tablename__ = 'products'
-    id = Column(String, primary_key=True)  # Product ID
-    name = Column(String)  # Product Name
-    category = Column(String)  # Category
-    sub_category = Column(String)  # Sub-Category
+    id = Column(String, primary_key=True)
+    name = Column(String)
+    category = Column(String)
+    sub_category = Column(String)
 
-# Tabella Orders (da Order ID, Date, etc.)
+
 class Order(Base):
+    """Order header with dates and shipping information."""
     __tablename__ = 'orders'
-    id = Column(String, primary_key=True)  # Order ID
+    id = Column(String, primary_key=True)
     customer_id = Column(String, ForeignKey('customers.id'))
-    order_date = Column(DateTime)  # Order Date
-    ship_date = Column(DateTime)  # Ship Date
-    ship_mode = Column(String)  # Ship Mode
-    total = Column(Float)  # Calcolato come sum(Sales) per ordine
+    order_date = Column(DateTime)
+    ship_date = Column(DateTime)
+    ship_mode = Column(String)
+    total = Column(Float)
     customer = relationship('Customer')
 
-# Tabella OrderItems (ogni riga CSV è un item)
+
 class OrderItem(Base):
+    """Order line item with sales, quantity, and profit data."""
     __tablename__ = 'order_items'
-    id = Column(Integer, primary_key=True, autoincrement=True)  # ID auto
+    id = Column(Integer, primary_key=True, autoincrement=True)
     order_id = Column(String, ForeignKey('orders.id'))
     product_id = Column(String, ForeignKey('products.id'))
-    quantity = Column(Integer)  # Quantity
-    sales = Column(Float)  # Sales (prezzo per item)
-    discount = Column(Float)  # Discount
-    profit = Column(Float)  # Profit
+    quantity = Column(Integer)
+    sales = Column(Float)
+    discount = Column(Float)
+    profit = Column(Float)
     order = relationship('Order')
     product = relationship('Product')
 
-# Funzione per creare DB
+
 def create_database():
+    """Initialize the SQLite database and create all tables."""
     import os
     db_path = os.path.join(os.path.dirname(__file__), '../data/database.db')
     engine = create_engine(f'sqlite:///{db_path}')

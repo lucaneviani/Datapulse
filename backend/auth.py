@@ -1,25 +1,24 @@
 """
-DataPulse Authentication System
-===============================
+DataPulse Authentication Module
 
-Sistema di autenticazione con JWT per gestire utenti e sessioni persistenti.
+JWT-based authentication system for user management and session handling.
 
 Features:
-- Registrazione utenti con email/password
-- Login con generazione JWT token
-- Protezione endpoint con decoratori
-- Refresh token per sessioni lunghe
-- Gestione profili utente
+    - User registration with email/password
+    - JWT token generation and validation
+    - Refresh tokens for extended sessions
+    - Password hashing with bcrypt
+    - User profile management
 
-Author: DataPulse Team
-License: MIT
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
 import os
 import hashlib
 import secrets
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 
@@ -29,15 +28,59 @@ import sqlite3
 
 logger = logging.getLogger("datapulse.auth")
 
-# ============================================================================
-# CONFIGURAZIONE
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).parent.parent
 AUTH_DB_PATH = BASE_DIR / "data" / "users.db"
+SECRET_KEY_FILE = BASE_DIR / "data" / ".jwt_secret"
 
-# JWT Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_hex(32))
+# JWT Configuration - Persistent secret key
+def _get_or_create_secret_key() -> str:
+    """Get JWT secret from env, file, or generate and persist a new one."""
+    # Priority 1: Environment variable
+    env_key = os.getenv("JWT_SECRET_KEY")
+    if env_key and len(env_key) >= 32:
+        return env_key
+    
+    # Priority 2: Persisted secret file
+    if SECRET_KEY_FILE.exists():
+        try:
+            return SECRET_KEY_FILE.read_text().strip()
+        except Exception:
+            pass
+    
+    # Priority 3: Generate and persist new secret
+    new_key = secrets.token_hex(32)
+    try:
+        SECRET_KEY_FILE.parent.mkdir(exist_ok=True)
+        SECRET_KEY_FILE.write_text(new_key)
+        
+        # A4: Cross-platform file permission handling
+        import platform
+        if platform.system() != 'Windows':
+            # Unix: Set restrictive permissions
+            SECRET_KEY_FILE.chmod(0o600)  # Read/write only for owner
+        else:
+            # Windows: Use icacls to restrict access (best effort)
+            try:
+                import subprocess
+                # Remove inheritance and grant only current user access
+                subprocess.run(
+                    ['icacls', str(SECRET_KEY_FILE), '/inheritance:r', '/grant:r', f'{os.getlogin()}:F'],
+                    capture_output=True, check=False
+                )
+            except Exception:
+                pass  # Best effort on Windows
+        
+        logger.warning("Generated new JWT secret key and saved to .jwt_secret")
+    except Exception as e:
+        logger.warning(f"Could not persist JWT secret: {e}. Key will be regenerated on restart.")
+    
+    return new_key
+
+SECRET_KEY = _get_or_create_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 REFRESH_TOKEN_EXPIRE_DAYS = 30
@@ -46,25 +89,25 @@ REFRESH_TOKEN_EXPIRE_DAYS = 30
 MIN_PASSWORD_LENGTH = 8
 
 
-# ============================================================================
-# MODELLI PYDANTIC
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Pydantic Models
+# -----------------------------------------------------------------------------
 
 class UserCreate(BaseModel):
-    """Schema per registrazione utente."""
+    """User registration request schema."""
     email: str = Field(..., min_length=5, max_length=100)
     password: str = Field(..., min_length=8, max_length=100)
     name: str = Field(..., min_length=2, max_length=100)
 
 
 class UserLogin(BaseModel):
-    """Schema per login utente."""
+    """User login request schema."""
     email: str
     password: str
 
 
 class UserResponse(BaseModel):
-    """Schema risposta utente (senza password)."""
+    """User response schema (excludes password)."""
     id: int
     email: str
     name: str
@@ -73,7 +116,7 @@ class UserResponse(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Schema risposta token."""
+    """Token response schema."""
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -81,7 +124,7 @@ class TokenResponse(BaseModel):
 
 
 class UserProfile(BaseModel):
-    """Profilo utente completo."""
+    """Complete user profile schema."""
     id: int
     email: str
     name: str
@@ -91,12 +134,12 @@ class UserProfile(BaseModel):
     dashboards_count: int
 
 
-# ============================================================================
-# DATABASE UTENTI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# User Database
+# -----------------------------------------------------------------------------
 
 def init_auth_database():
-    """Inizializza il database degli utenti."""
+    """Initialize the users database and create required tables."""
     AUTH_DB_PATH.parent.mkdir(exist_ok=True)
     
     conn = sqlite3.connect(str(AUTH_DB_PATH))
@@ -174,19 +217,19 @@ def init_auth_database():
     
     conn.commit()
     conn.close()
-    logger.info("Database autenticazione inizializzato")
+    logger.info("Authentication database initialized")
 
 
-# Inizializza DB all'import
+# Initialize DB on import
 init_auth_database()
 
 
-# ============================================================================
-# FUNZIONI PASSWORD
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Password Hashing
+# -----------------------------------------------------------------------------
 
 def hash_password(password: str) -> str:
-    """Hash password con salt."""
+    """Hash password using PBKDF2-HMAC with random salt."""
     salt = secrets.token_hex(16)
     pwdhash = hashlib.pbkdf2_hmac(
         'sha256', 
@@ -198,7 +241,7 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verifica password contro hash."""
+    """Verify password against stored hash."""
     try:
         salt, stored_hash = password_hash.split('$')
         pwdhash = hashlib.pbkdf2_hmac(
@@ -208,17 +251,17 @@ def verify_password(password: str, password_hash: str) -> bool:
             100000
         )
         return pwdhash.hex() == stored_hash
-    except:
+    except (ValueError, AttributeError, TypeError):
         return False
 
 
-# ============================================================================
-# FUNZIONI JWT
-# ============================================================================
+# -----------------------------------------------------------------------------
+# JWT Token Management
+# -----------------------------------------------------------------------------
 
 def create_access_token(user_id: int, email: str) -> str:
-    """Crea JWT access token."""
-    expires = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    """Create JWT access token."""
+    expires = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     payload = {
         "sub": str(user_id),
         "email": email,
@@ -229,8 +272,8 @@ def create_access_token(user_id: int, email: str) -> str:
 
 
 def create_refresh_token(user_id: int) -> Tuple[str, datetime]:
-    """Crea refresh token e lo salva nel DB."""
-    expires = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    """Create refresh token and store in database."""
+    expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     token = secrets.token_urlsafe(64)
     
     conn = sqlite3.connect(str(AUTH_DB_PATH))
@@ -246,22 +289,22 @@ def create_refresh_token(user_id: int) -> Tuple[str, datetime]:
 
 
 def verify_access_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verifica e decodifica access token."""
+    """Verify and decode access token."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "access":
             return None
         return payload
     except jwt.ExpiredSignatureError:
-        logger.warning("Token scaduto")
+        logger.warning("Token expired")
         return None
     except jwt.InvalidTokenError as e:
-        logger.warning(f"Token non valido: {e}")
+        logger.warning(f"Invalid token: {e}")
         return None
 
 
 def verify_refresh_token(token: str) -> Optional[int]:
-    """Verifica refresh token e restituisce user_id."""
+    """Verify refresh token and return user_id."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     cursor.execute(
@@ -280,14 +323,14 @@ def verify_refresh_token(token: str) -> Optional[int]:
     if revoked:
         return None
     
-    if datetime.fromisoformat(expires_at) < datetime.utcnow():
+    if datetime.fromisoformat(expires_at).replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         return None
     
     return user_id
 
 
 def revoke_refresh_token(token: str):
-    """Revoca un refresh token."""
+    """Revoke a refresh token."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     cursor.execute("UPDATE refresh_tokens SET revoked = 1 WHERE token = ?", (token,))
@@ -295,23 +338,81 @@ def revoke_refresh_token(token: str):
     conn.close()
 
 
-# ============================================================================
-# GESTIONE UTENTI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Email Validation (A5 Enhancement)
+# -----------------------------------------------------------------------------
+
+import re
+
+# RFC 5322 simplified email regex pattern
+EMAIL_REGEX = re.compile(
+    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+)
+
+def validate_email(email: str) -> Tuple[bool, str]:
+    """
+    Validate email address format.
+    
+    Args:
+        email: Email to validate
+    
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not email or not isinstance(email, str):
+        return False, "Email is required"
+    
+    email = email.strip().lower()
+    
+    if len(email) < 5:
+        return False, "Email too short"
+    
+    if len(email) > 254:  # RFC 5321 max length
+        return False, "Email too long"
+    
+    if not EMAIL_REGEX.match(email):
+        return False, "Invalid email format"
+    
+    # Check for common invalid patterns
+    if ".." in email:
+        return False, "Invalid email: consecutive dots"
+    
+    # Check domain has at least one dot
+    local, _, domain = email.partition("@")
+    
+    # Local part validation
+    if local.startswith(".") or local.endswith("."):
+        return False, "Invalid email: local part starts or ends with dot"
+    
+    # Domain validation
+    if domain.startswith(".") or domain.endswith("."):
+        return False, "Invalid email: domain starts or ends with dot"
+    
+    if "." not in domain:
+        return False, "Invalid email: invalid domain"
+    
+    return True, "OK"
+
+
+# -----------------------------------------------------------------------------
+# User Management
+# -----------------------------------------------------------------------------
 
 def create_user(email: str, password: str, name: str) -> Tuple[bool, str, Optional[int]]:
     """
-    Crea un nuovo utente.
+    Create a new user.
     
     Returns:
-        (success, message, user_id)
+        Tuple of (success, message, user_id)
     """
-    # Validazione
-    if len(password) < MIN_PASSWORD_LENGTH:
-        return False, f"Password deve avere almeno {MIN_PASSWORD_LENGTH} caratteri", None
+    # A5: Enhanced email validation
+    email_valid, email_error = validate_email(email)
+    if not email_valid:
+        return False, email_error, None
     
-    if "@" not in email or "." not in email:
-        return False, "Email non valida", None
+    # Password validation
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return False, f"Password must be at least {MIN_PASSWORD_LENGTH} characters", None
     
     password_hash = hash_password(password)
     
@@ -325,20 +426,20 @@ def create_user(email: str, password: str, name: str) -> Tuple[bool, str, Option
         )
         user_id = cursor.lastrowid
         conn.commit()
-        logger.info(f"Nuovo utente creato: {email}")
-        return True, "Utente creato con successo", user_id
+        logger.info(f"New user created: {email}")
+        return True, "User created successfully", user_id
     except sqlite3.IntegrityError:
-        return False, "Email già registrata", None
+        return False, "Email already registered", None
     finally:
         conn.close()
 
 
 def authenticate_user(email: str, password: str) -> Tuple[bool, str, Optional[Dict]]:
     """
-    Autentica un utente.
+    Authenticate a user.
     
     Returns:
-        (success, message, user_data)
+        Tuple of (success, message, user_data)
     """
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
@@ -350,28 +451,28 @@ def authenticate_user(email: str, password: str) -> Tuple[bool, str, Optional[Di
     
     if not result:
         conn.close()
-        return False, "Email non trovata", None
+        return False, "Email not found", None
     
     user_id, user_email, password_hash, name, is_active = result
     
     if not is_active:
         conn.close()
-        return False, "Account disattivato", None
+        return False, "Account deactivated", None
     
     if not verify_password(password, password_hash):
         conn.close()
-        return False, "Password errata", None
+        return False, "Incorrect password", None
     
-    # Aggiorna last_login
+    # Update last_login
     cursor.execute(
         "UPDATE users SET last_login = ? WHERE id = ?",
-        (datetime.utcnow().isoformat(), user_id)
+        (datetime.now(timezone.utc).isoformat(), user_id)
     )
     conn.commit()
     conn.close()
     
-    logger.info(f"Login riuscito: {email}")
-    return True, "Login effettuato", {
+    logger.info(f"Login successful: {email}")
+    return True, "Login successful", {
         "id": user_id,
         "email": user_email,
         "name": name
@@ -379,7 +480,7 @@ def authenticate_user(email: str, password: str) -> Tuple[bool, str, Optional[Di
 
 
 def get_user_by_id(user_id: int) -> Optional[Dict]:
-    """Ottiene dati utente per ID."""
+    """Get user data by ID."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     cursor.execute(
@@ -403,7 +504,7 @@ def get_user_by_id(user_id: int) -> Optional[Dict]:
 
 
 def get_user_profile(user_id: int) -> Optional[Dict]:
-    """Ottiene profilo completo utente con statistiche."""
+    """Get complete user profile with statistics."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     
@@ -439,12 +540,12 @@ def get_user_profile(user_id: int) -> Optional[Dict]:
     }
 
 
-# ============================================================================
-# QUERY SALVATE
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Saved Queries
+# -----------------------------------------------------------------------------
 
 def save_query(user_id: int, name: str, question: str, sql_query: str = None) -> Tuple[bool, str, Optional[int]]:
-    """Salva una query per l'utente."""
+    """Save a query for the user."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     
@@ -511,7 +612,7 @@ def increment_query_usage(query_id: int):
         """UPDATE saved_queries 
            SET use_count = use_count + 1, last_used = ? 
            WHERE id = ?""",
-        (datetime.utcnow().isoformat(), query_id)
+        (datetime.now(timezone.utc).isoformat(), query_id)
     )
     conn.commit()
     conn.close()

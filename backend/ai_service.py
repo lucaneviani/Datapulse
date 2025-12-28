@@ -1,42 +1,37 @@
 """
 DataPulse AI Service
-====================
 
-Servizio core per la generazione di query SQL tramite intelligenza artificiale,
-con ottimizzazioni per performance e sicurezza in produzione.
+Core service for SQL generation using artificial intelligence,
+optimized for production performance and security.
 
-Funzionalità Principali:
-------------------------
-- **Generazione SQL**: Converte domande in linguaggio naturale in query SQL
-  usando Google Gemini AI con prompt engineering ottimizzato
-- **Caching intelligente**: Cache LRU con TTL per ridurre chiamate API e costi
-- **Rate limiting**: Protezione contro abusi con finestra temporale configurabile
-- **Validazione sicurezza**: Whitelist tabelle/colonne, blocco SQL injection
+Features:
+    - SQL Generation: Converts natural language to SQL using Google Gemini AI
+    - Smart Caching: LRU cache with TTL to reduce API calls and costs
+    - Rate Limiting: Protection against abuse with configurable time windows
+    - Security Validation: Table/column whitelist, SQL injection blocking
 
-Componenti:
------------
-- SQLCache: Cache in memoria per query SQL generate (max 100 entries, 1h TTL)
-- RateLimiter: Limita richieste API (30 req/min di default)
-- generate_sql(): Funzione principale per generazione SQL
-- validate_sql(): Validazione strutturale delle query
-- validate_sql_strict(): Validazione sicurezza avanzata
+Components:
+    - SQLCache: In-memory cache for generated SQL (100 entries max, 1h TTL)
+    - RateLimiter: API request limiter (30 req/min default)
+    - generate_sql(): Main function for SQL generation
+    - validate_sql(): Structural query validation
+    - validate_sql_strict(): Advanced security validation
 
-Configurazione:
----------------
-Richiede la variabile d'ambiente GOOGLE_API_KEY nel file .env
+Configuration:
+    Requires GOOGLE_API_KEY environment variable in .env file
 
-Esempio d'uso:
---------------
->>> from ai_service import generate_sql
->>> sql = generate_sql("Mostra i top 10 clienti per vendite", schema_info)
->>> print(sql)
-'SELECT c.name, SUM(oi.sales) as total FROM customers c ...'
-
-Author: DataPulse Team
-License: MIT
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
-import google.generativeai as genai
+import warnings
+# Suppress deprecation warning - migration to google.genai planned
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    try:
+        import google.generativeai as genai
+    except Exception:
+        genai = None
 import os
 import hashlib
 import time
@@ -53,19 +48,26 @@ logger = logging.getLogger("datapulse.ai")
 
 # Configurazione API
 API_KEY = os.getenv("GOOGLE_API_KEY")
-if API_KEY:
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash-exp")
+if genai is not None and API_KEY:
+    try:
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+    except Exception as e:
+        model = None
+        logger.warning(f"Failed to configure Google generative AI: {e}")
+elif genai is None:
+    model = None
+    logger.warning("google.generativeai package not installed - AI service disabled")
 else:
     model = None
     logger.warning("GOOGLE_API_KEY non configurata - AI service disabilitato")
 
-# ============================================================================
-# CACHE PER QUERY SQL
-# ============================================================================
+# -----------------------------------------------------------------------------
+# SQL Query Cache
+# -----------------------------------------------------------------------------
 
 class SQLCache:
-    """Cache in memoria per query SQL generate."""
+    """In-memory cache for generated SQL queries."""
     
     def __init__(self, max_size: int = 100, ttl_seconds: int = 3600):
         self.cache: Dict[str, Tuple[str, datetime]] = {}
@@ -73,57 +75,57 @@ class SQLCache:
         self.ttl = timedelta(seconds=ttl_seconds)
     
     def _hash_key(self, question: str, schema: str) -> str:
-        """Genera una chiave hash per la cache."""
+        """Generate hash key for cache lookup."""
         content = f"{question.lower().strip()}:{schema}"
         return hashlib.md5(content.encode()).hexdigest()
     
     def get(self, question: str, schema: str) -> Optional[str]:
-        """Recupera SQL dalla cache se presente e non scaduto."""
+        """Retrieve SQL from cache if present and not expired."""
         key = self._hash_key(question, schema)
         if key in self.cache:
             sql, timestamp = self.cache[key]
             if datetime.now() - timestamp < self.ttl:
-                logger.info(f"Cache HIT per: {question[:30]}...")
+                logger.info(f"Cache HIT: {question[:30]}...")
                 return sql
             else:
-                # Rimuovi entry scaduta
+                # Remove expired entry
                 del self.cache[key]
         return None
     
     def set(self, question: str, schema: str, sql: str):
-        """Salva SQL nella cache."""
-        # Pulisci cache se piena
+        """Store SQL in cache."""
+        # Clean cache if full
         if len(self.cache) >= self.max_size:
             self._cleanup()
         
         key = self._hash_key(question, schema)
         self.cache[key] = (sql, datetime.now())
-        logger.info(f"Cache SET per: {question[:30]}...")
+        logger.info(f"Cache SET: {question[:30]}...")
     
     def _cleanup(self):
-        """Rimuove le entry più vecchie."""
+        """Remove oldest entries."""
         now = datetime.now()
-        # Rimuovi scadute
+        # Remove expired
         expired = [k for k, (_, ts) in self.cache.items() if now - ts >= self.ttl]
         for k in expired:
             del self.cache[k]
         
-        # Se ancora piena, rimuovi le più vecchie
+        # If still full, remove oldest
         if len(self.cache) >= self.max_size:
             sorted_items = sorted(self.cache.items(), key=lambda x: x[1][1])
             for k, _ in sorted_items[:len(self.cache) // 2]:
                 del self.cache[k]
 
 
-# Istanza globale della cache
-sql_cache = SQLCache(max_size=100, ttl_seconds=3600)  # 1 ora TTL
+# Global cache instance
+sql_cache = SQLCache(max_size=100, ttl_seconds=3600)  # 1 hour TTL
 
-# ============================================================================
-# RATE LIMITING
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Rate Limiting
+# -----------------------------------------------------------------------------
 
 class RateLimiter:
-    """Rate limiter semplice per proteggere l'API."""
+    """Simple rate limiter to protect the API."""
     
     def __init__(self, max_requests: int = 30, window_seconds: int = 60):
         self.max_requests = max_requests
@@ -131,38 +133,38 @@ class RateLimiter:
         self.requests: list = []
     
     def can_proceed(self) -> bool:
-        """Verifica se possiamo procedere con una nuova richiesta."""
+        """Check if a new request can proceed."""
         now = time.time()
-        # Rimuovi richieste vecchie
+        # Remove old requests
         self.requests = [ts for ts in self.requests if now - ts < self.window]
         
         if len(self.requests) >= self.max_requests:
-            logger.warning(f"Rate limit raggiunto: {len(self.requests)}/{self.max_requests}")
+            logger.warning(f"Rate limit reached: {len(self.requests)}/{self.max_requests}")
             return False
         
         self.requests.append(now)
         return True
     
     def get_wait_time(self) -> float:
-        """Calcola tempo di attesa se rate limited."""
+        """Calculate wait time if rate limited."""
         if not self.requests:
             return 0
         return max(0, self.window - (time.time() - self.requests[0]))
 
 
-# Istanza globale del rate limiter
+# Global rate limiter instance
 rate_limiter = RateLimiter(max_requests=30, window_seconds=60)
 
-# ============================================================================
-# WHITELIST TABELLE E COLONNE (SICUREZZA)
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Security: Table and Column Whitelist
+# -----------------------------------------------------------------------------
 
-# Tabelle permesse nel database
+# Allowed tables in database
 ALLOWED_TABLES = {
     "customers", "products", "orders", "order_items"
 }
 
-# Colonne permesse per tabella
+# Allowed columns per table
 ALLOWED_COLUMNS = {
     "customers": {"id", "name", "segment", "country", "city", "state", "postal_code", "region"},
     "products": {"id", "name", "category", "sub_category"},
@@ -170,7 +172,7 @@ ALLOWED_COLUMNS = {
     "order_items": {"id", "order_id", "product_id", "quantity", "sales", "discount", "profit"}
 }
 
-# Alias comuni per tabelle
+# Common table aliases
 TABLE_ALIASES = {
     "c": "customers",
     "p": "products", 
@@ -178,31 +180,31 @@ TABLE_ALIASES = {
     "oi": "order_items"
 }
 
-# ============================================================================
-# SANITIZZAZIONE INPUT
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Input Sanitization
+# -----------------------------------------------------------------------------
 
 def sanitize_input(text: str) -> str:
     """
-    Sanitizza l'input dell'utente rimuovendo caratteri potenzialmente pericolosi.
+    Sanitize user input by removing potentially dangerous characters.
     
     Args:
-        text: Testo da sanitizzare
+        text: Text to sanitize
     
     Returns:
-        Testo sanitizzato
+        Sanitized text
     """
     if not text:
         return ""
     
-    # Rimuovi caratteri di controllo
+    # Remove control characters
     import re
     text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
     
-    # Rimuovi tag HTML/script
+    # Remove HTML/script tags
     text = re.sub(r'<[^>]*>', '', text)
     
-    # Limita caratteri speciali SQL pericolosi all'inizio/fine
+    # Strip dangerous SQL characters from start/end
     text = text.strip(";'\"")
     
     return text.strip()
@@ -210,55 +212,54 @@ def sanitize_input(text: str) -> str:
 
 def validate_tables_in_sql(sql: str) -> bool:
     """
-    Verifica che la query SQL usi solo tabelle permesse.
+    Verify that SQL query only uses allowed tables.
     
     Args:
-        sql: Query SQL da verificare
+        sql: SQL query to verify
     
     Returns:
-        True se tutte le tabelle sono permesse, False altrimenti
+        True if all tables are allowed, False otherwise
     """
     import re
     sql_upper = sql.upper()
     
-    # Pattern per trovare nomi tabelle dopo FROM e JOIN
-    # Cattura: FROM table, JOIN table, FROM table alias
+    # Pattern to find table names after FROM and JOIN
     table_pattern = r'(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
     matches = re.findall(table_pattern, sql_upper)
     
     for table in matches:
         table_lower = table.lower()
-        # Verifica se è una tabella o un alias permesso
+        # Check if it's an allowed table or alias
         if table_lower not in ALLOWED_TABLES and table_lower not in TABLE_ALIASES:
-            logger.warning(f"Tabella non permessa rilevata: {table}")
+            logger.warning(f"Disallowed table detected: {table}")
             return False
     
     return True
 
 
-# ============================================================================
-# SCHEMA DESCRITTIVO PER AI
-# ============================================================================
+# -----------------------------------------------------------------------------
+# Enhanced Schema for AI Prompts
+# -----------------------------------------------------------------------------
 
 ENHANCED_SCHEMA = """
 Table: customers
-- id: INTEGER PRIMARY KEY (identificatore univoco cliente)
-- name: TEXT (nome completo del cliente)
-- segment: TEXT (segmento mercato: 'Consumer', 'Corporate', 'Home Office')
-- country: TEXT (paese del cliente)
-- city: TEXT (città del cliente)
-- state: TEXT (stato/regione del cliente)
-- postal_code: TEXT (codice postale)
-- region: TEXT (macro-regione: 'West', 'East', 'Central', 'South')
+- id: INTEGER PRIMARY KEY (unique customer identifier)
+- name: TEXT (customer full name)
+- segment: TEXT (market segment: 'Consumer', 'Corporate', 'Home Office')
+- country: TEXT (customer country)
+- city: TEXT (customer city)
+- state: TEXT (customer state/region)
+- postal_code: TEXT (postal code)
+- region: TEXT (macro-region: 'West', 'East', 'Central', 'South')
 
 Table: products
-- id: INTEGER PRIMARY KEY (identificatore univoco prodotto)
-- name: TEXT (nome del prodotto)
-- category: TEXT (categoria: 'Technology', 'Furniture', 'Office Supplies')
-- sub_category: TEXT (sotto-categoria del prodotto)
+- id: INTEGER PRIMARY KEY (unique product identifier)
+- name: TEXT (product name)
+- category: TEXT (category: 'Technology', 'Furniture', 'Office Supplies')
+- sub_category: TEXT (product sub-category)
 
 Table: orders
-- id: INTEGER PRIMARY KEY (identificatore univoco ordine)
+- id: INTEGER PRIMARY KEY (unique order identifier)
 - customer_id: INTEGER FOREIGN KEY -> customers.id
 - order_date: DATE (data dell'ordine, formato YYYY-MM-DD)
 - ship_date: DATE (data di spedizione)
@@ -483,6 +484,86 @@ def validate_sql_strict(sql: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+def validate_sql_dynamic(sql: str) -> tuple[bool, str]:
+    """
+    Validate SQL for dynamic/custom databases (without table whitelist).
+    
+    This is used for user-uploaded databases where we can't know the table names
+    in advance, but still need robust security validation.
+    
+    Args:
+        sql: SQL query to validate
+    
+    Returns:
+        Tuple (is_valid, error_message)
+    """
+    if not sql or not isinstance(sql, str):
+        return False, "Empty or invalid SQL query"
+    
+    sql_clean = sql.strip()
+    sql_upper = sql_clean.upper()
+    
+    # Must start with SELECT (case insensitive)
+    if not sql_upper.startswith("SELECT"):
+        return False, "Only SELECT queries are allowed"
+    
+    # Block SQL comments (potential injection vector)
+    if "--" in sql_clean:
+        return False, "SQL comments (--) not allowed"
+    if "/*" in sql_clean:
+        return False, "SQL block comments not allowed"
+    if "#" in sql_clean and not sql_clean.startswith("#"):  # MySQL comments
+        # Allow # only at start (could be shebang in some contexts)
+        return False, "SQL comments (#) not allowed"
+    
+    # Block multiple statements (semicolon injection)
+    semicolon_count = sql_clean.count(";")
+    if semicolon_count > 1:
+        return False, "Multiple statements not allowed"
+    # If there's one semicolon, it should only be at the end
+    if semicolon_count == 1 and not sql_clean.rstrip().endswith(";"):
+        return False, "Semicolon only allowed at end of query"
+    
+    # Block UNION (SQL injection to read other tables)
+    if " UNION " in sql_upper or sql_upper.endswith(" UNION"):
+        return False, "UNION not allowed for security"
+    
+    # Comprehensive list of forbidden operations
+    # Using word boundary detection to avoid false positives
+    import re
+    forbidden_keywords = [
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", 
+        "TRUNCATE", "EXEC", "EXECUTE", "GRANT", "REVOKE", 
+        "COMMIT", "ROLLBACK", "SAVEPOINT",
+        "ATTACH", "DETACH", "PRAGMA", "VACUUM", "REINDEX",
+        "LOAD_FILE", "INTO OUTFILE", "INTO DUMPFILE",  # MySQL file ops
+        "COPY", "\\\\COPY",  # PostgreSQL file ops
+        "XP_", "SP_",  # SQL Server system procs
+        "UTL_", "DBMS_",  # Oracle packages
+    ]
+    
+    for keyword in forbidden_keywords:
+        # Match as whole word (word boundaries)
+        pattern = r'\b' + re.escape(keyword) + r'\b'
+        if re.search(pattern, sql_upper):
+            return False, f"Operation {keyword} not allowed"
+    
+    # Block hex/char encoding attacks
+    if "0X" in sql_upper or "CHAR(" in sql_upper or "CHR(" in sql_upper:
+        return False, "Encoded characters not allowed"
+    
+    # Block string concatenation tricks
+    if "CONCAT(" in sql_upper and ("0X" in sql_upper or "CHAR" in sql_upper):
+        return False, "String concatenation with encoding not allowed"
+    
+    # Block sleep/benchmark (timing attacks)
+    if "SLEEP(" in sql_upper or "BENCHMARK(" in sql_upper or "WAITFOR" in sql_upper:
+        return False, "Time-based functions not allowed"
+    
+    # Passed all checks
+    return True, "OK"
+
+
 def get_cache_stats() -> dict:
     """Restituisce statistiche sulla cache."""
     return {
@@ -501,6 +582,74 @@ def clear_cache():
 # ============================================================================
 # GENERAZIONE SQL PER DATABASE DINAMICI (UPLOAD UTENTE)
 # ============================================================================
+
+def fallback_generate_sql_dynamic(question: str, schema: str, tables: list) -> str:
+    """
+    Simple rule-based fallback SQL generator when AI is unavailable.
+    Produces safe SELECT queries using heuristics for count/sum/avg/top/list.
+    """
+    q = (question or "").strip().lower()
+    # Choose target table: try to find a table name in the question, else fallback to first table
+    target_table = None
+    for t in tables:
+        if t.lower() in q or (t.lower().endswith('s') and t.lower()[:-1] in q) or (t.lower() + 's' in q):
+            target_table = t
+            break
+    if not target_table and tables:
+        target_table = tables[0]
+    if not target_table:
+        return "Error: No available tables in the database"
+
+    # Heuristics
+    if any(k in q for k in ("how many", "count of", "count", "how many records", "number of")):
+        return f"SELECT COUNT(*) as count FROM {target_table};"
+
+    if any(k in q for k in ("sum", "total", "totale", "revenue", "sales")):
+        # Prefer 'total' or 'sales' if present in schema text
+        column = None
+        for cand in ("total", "sales", "amount", "revenue"):
+            if cand in schema.lower():
+                column = cand
+                break
+        if column:
+            return f"SELECT SUM({column}) as total FROM {target_table};"
+        else:
+            return f"SELECT SUM(1) as total FROM {target_table};"  # fallback (will be 0 or invalid but still SELECT)
+
+    if any(k in q for k in ("average", "avg", "media")):
+        column = None
+        for cand in ("total", "sales", "amount", "profit"):
+            if cand in schema.lower():
+                column = cand
+                break
+        if column:
+            return f"SELECT AVG({column}) as average FROM {target_table};"
+        else:
+            return f"SELECT AVG(1) as average FROM {target_table};"
+
+    # Top N
+    import re
+    m = re.search(r"top (\d+)", q)
+    if m:
+        n = int(m.group(1))
+        # choose ordering column
+        order_col = None
+        for cand in ("profit", "total", "sales", "quantity"):
+            if cand in schema.lower():
+                order_col = cand
+                break
+        if order_col:
+            return f"SELECT * FROM {target_table} ORDER BY {order_col} DESC LIMIT {n};"
+        else:
+            return f"SELECT * FROM {target_table} LIMIT {n};"
+
+    # List/show -> return first 100 rows
+    if any(k in q for k in ("show", "list", "display", "all", "mostra")):
+        return f"SELECT * FROM {target_table} LIMIT 100;"
+
+    # Default fallback
+    return f"SELECT * FROM {target_table} LIMIT 100;"
+
 
 def generate_sql_dynamic(question: str, schema: str, tables: list) -> str:
     """
@@ -532,9 +681,15 @@ def generate_sql_dynamic(question: str, schema: str, tables: list) -> str:
         wait_time = rate_limiter.get_wait_time()
         return f"Error: Troppe richieste. Riprova tra {int(wait_time)} secondi."
     
-    # Verifica API configurata
+    # If AI model is not available, use fallback rules
     if not model:
-        return "Error: API key non configurata. Imposta GOOGLE_API_KEY nel file .env"
+        logger.info("AI model not available - using fallback SQL generator")
+        sql = fallback_generate_sql_dynamic(question, schema, tables)
+        # cache and return if valid
+        if sql and validate_sql(sql, check_tables=False):
+            sql_cache.set(question, schema, sql)
+            return sql
+        return sql
     
     tables_list = ", ".join(tables)
     

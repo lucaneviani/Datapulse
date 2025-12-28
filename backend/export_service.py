@@ -1,18 +1,17 @@
 """
-DataPulse Export System
-=======================
+DataPulse Export Module
 
-Sistema di export avanzato con supporto per PDF, Excel, e report schedulati.
+Advanced export system with support for multiple formats and scheduled reports.
 
 Features:
-- Export PDF con grafici embedded
-- Export Excel multi-foglio
-- Export JSON/CSV
-- Report automatici schedulati
-- Template report personalizzabili
+    - PDF export with embedded charts
+    - Multi-sheet Excel export
+    - JSON/CSV export
+    - Scheduled automatic reports
+    - Customizable report templates
 
-Author: DataPulse Team
-License: MIT
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
 import io

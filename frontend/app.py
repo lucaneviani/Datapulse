@@ -1,9 +1,12 @@
 """
-DataPulse Frontend - Streamlit Application
-==========================================
-Professional dark-themed UI for AI-powered data analytics.
-Supports custom database uploads (CSV, Excel, SQLite).
-Multi-language support (IT, EN, ES, FR, DE).
+DataPulse Frontend
+
+Streamlit-based web interface for AI-powered data analytics.
+Features a professional dark theme with support for custom database uploads
+and multi-language localization.
+
+Copyright (c) 2024 Luca Neviani
+Licensed under the MIT License
 """
 
 import streamlit as st
@@ -12,12 +15,18 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import time
+import sys
+import os
 from datetime import datetime
+
+# Add project root to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from backend.i18n import i18n, t, set_language, get_language, get_supported_languages, SUPPORTED_LANGUAGES
 
-# =============================================================================
-# PAGE CONFIGURATION
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Page Configuration
+# -----------------------------------------------------------------------------
 
 st.set_page_config(
     page_title="DataPulse",
@@ -26,24 +35,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# =============================================================================
-# CONSTANTS
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Constants
+# -----------------------------------------------------------------------------
 
 BACKEND_URL = "http://127.0.0.1:8000"
 API_ENDPOINT = f"{BACKEND_URL}/api/analyze"
 
-# =============================================================================
-# CUSTOM CSS
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Custom CSS
+# -----------------------------------------------------------------------------
 
 st.markdown("""
 <style>
     /* Import Inter font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* Root variables */
-    :root {
+    /* D9: Theme Variables - Dark Mode (default) */
+    :root, [data-theme="dark"] {
         --bg-primary: #0a0a0b;
         --bg-secondary: #141417;
         --bg-card: #1a1a1f;
@@ -59,15 +68,61 @@ st.markdown("""
         --accent-yellow: #f59e0b;
     }
     
+    /* D9: Light Mode Theme */
+    [data-theme="light"] {
+        --bg-primary: #f8fafc;
+        --bg-secondary: #ffffff;
+        --bg-card: #ffffff;
+        --bg-hover: #f1f5f9;
+        --border-color: #e2e8f0;
+        --text-primary: #1e293b;
+        --text-secondary: #475569;
+        --text-muted: #94a3b8;
+        --accent-blue: #2563eb;
+        --accent-purple: #7c3aed;
+        --accent-green: #059669;
+        --accent-red: #dc2626;
+        --accent-yellow: #d97706;
+    }
+    
     /* Global styles */
     .stApp {
         background-color: var(--bg-primary);
         font-family: 'Inter', sans-serif;
     }
     
-    /* Hide Streamlit elements */
-    #MainMenu, footer, header {visibility: hidden;}
+    /* Hide Streamlit elements - keep sidebar toggle visible */
+    #MainMenu, footer {visibility: hidden;}
     .stDeployButton {display: none;}
+    
+    /* Hide header text but keep sidebar toggle button */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
+    
+    /* Sidebar toggle button styling */
+    button[data-testid="stSidebarCollapseButton"],
+    button[data-testid="collapsedControl"] {
+        visibility: visible !important;
+        display: block !important;
+        background-color: var(--bg-card) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 8px !important;
+        color: var(--text-primary) !important;
+        position: fixed !important;
+        top: 14px !important;
+        left: 14px !important;
+        z-index: 999999 !important;
+        padding: 8px !important;
+        cursor: pointer !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+    }
+    
+    button[data-testid="stSidebarCollapseButton"]:hover,
+    button[data-testid="collapsedControl"]:hover {
+        background-color: var(--bg-hover) !important;
+        border-color: var(--accent-blue) !important;
+    }
     
     /* Sidebar */
     section[data-testid="stSidebar"] {
@@ -296,12 +351,629 @@ st.markdown("""
     ::-webkit-scrollbar-thumb:hover {
         background: var(--text-muted);
     }
+    
+    /* D3: Mobile Responsiveness */
+    @media (max-width: 768px) {
+        .metric-value { font-size: 32px !important; }
+        .metric-container { padding: 20px !important; }
+        .stTabs [data-baseweb="tab"] { padding: 6px 10px !important; font-size: 13px !important; }
+        h1 { font-size: 28px !important; }
+        .history-item { padding: 8px 10px !important; }
+    }
+    
+    @media (max-width: 480px) {
+        .metric-value { font-size: 24px !important; }
+        .stButton > button { padding: 10px 16px !important; font-size: 13px !important; }
+    }
+    
+    /* D8: Accessibility - Focus states */
+    .stButton > button:focus,
+    .stTextInput > div > div > input:focus,
+    .stSelectbox > div > div:focus-within {
+        outline: 2px solid var(--accent-blue) !important;
+        outline-offset: 2px !important;
+    }
+    
+    /* D8: High contrast for better readability */
+    .stMarkdown p { color: #d1d5db !important; }
+    
+    /* D8: Skip link for keyboard navigation */
+    .skip-link {
+        position: absolute;
+        top: -40px;
+        left: 0;
+        background: var(--accent-blue);
+        color: white;
+        padding: 8px 16px;
+        z-index: 100;
+        transition: top 0.3s;
+    }
+    .skip-link:focus { top: 0; }
+    
+    /* =========== ENHANCED UI/UX =========== */
+    
+    /* Micro-animations */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(-20px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    
+    .animate-fade-in {
+        animation: fadeIn 0.3s ease-out forwards;
+    }
+    
+    .animate-slide-in {
+        animation: slideIn 0.3s ease-out forwards;
+    }
+    
+    /* Skeleton loading */
+    .skeleton {
+        background: linear-gradient(90deg, var(--bg-card) 0%, var(--bg-hover) 50%, var(--bg-card) 100%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 8px;
+    }
+    
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    
+    .skeleton-text {
+        height: 16px;
+        margin-bottom: 8px;
+    }
+    
+    .skeleton-title {
+        height: 24px;
+        width: 60%;
+        margin-bottom: 16px;
+    }
+    
+    .skeleton-card {
+        height: 120px;
+        margin-bottom: 16px;
+    }
+    
+    /* Toast notifications */
+    .toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 16px 24px;
+        border-radius: 12px;
+        z-index: 10000;
+        animation: slideIn 0.3s ease-out;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 500;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    
+    .toast-success {
+        background: linear-gradient(135deg, #059669, #10b981);
+        color: white;
+    }
+    
+    .toast-error {
+        background: linear-gradient(135deg, #dc2626, #ef4444);
+        color: white;
+    }
+    
+    .toast-info {
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: white;
+    }
+    
+    /* Enhanced buttons */
+    .btn-primary {
+        background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)) !important;
+        border: none !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 12px 28px !important;
+        border-radius: 10px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3) !important;
+    }
+    
+    .btn-primary:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
+    }
+    
+    .btn-secondary {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-color) !important;
+        color: var(--text-primary) !important;
+        font-weight: 500 !important;
+        padding: 10px 20px !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .btn-secondary:hover {
+        background: var(--bg-hover) !important;
+        border-color: var(--accent-blue) !important;
+    }
+    
+    .btn-danger {
+        background: linear-gradient(135deg, #dc2626, #ef4444) !important;
+        border: none !important;
+        color: white !important;
+    }
+    
+    /* Enhanced cards */
+    .card-elevated {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 24px;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .card-elevated:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        border-color: var(--accent-blue);
+    }
+    
+    /* Feature highlight */
+    .feature-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+        color: var(--accent-blue);
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Stats grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 16px;
+        margin: 20px 0;
+    }
+    
+    .stat-item {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        transition: all 0.2s;
+    }
+    
+    .stat-item:hover {
+        border-color: var(--accent-blue);
+        transform: scale(1.02);
+    }
+    
+    .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+    
+    .stat-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* D11: Visual feedback for keyboard shortcuts */
+    .keyboard-hint {
+        font-size: 11px;
+        color: var(--text-muted);
+        background: var(--bg-hover);
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 8px;
+    }
+    
+    /* D10: Empty State Styles */
+    .empty-state {
+        text-align: center;
+        padding: 48px 24px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05));
+        border: 1px dashed var(--border-color);
+        border-radius: 16px;
+        margin: 24px 0;
+    }
+    .empty-state-icon {
+        font-size: 56px;
+        margin-bottom: 16px;
+        opacity: 0.8;
+    }
+    .empty-state-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+    .empty-state-description {
+        font-size: 14px;
+        color: var(--text-muted);
+        max-width: 400px;
+        margin: 0 auto 20px;
+        line-height: 1.6;
+    }
+    .empty-state-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+        color: white;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 14px;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    
+    /* D12: Autocomplete Dropdown */
+    .autocomplete-container {
+        position: relative;
+    }
+    .autocomplete-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 1000;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .autocomplete-item {
+        padding: 10px 14px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-color);
+        transition: background 0.15s;
+    }
+    .autocomplete-item:hover {
+        background: var(--bg-hover);
+    }
+    .autocomplete-item:last-child {
+        border-bottom: none;
+    }
+    .autocomplete-text {
+        color: var(--text-primary);
+        font-size: 14px;
+    }
+    .autocomplete-hint {
+        color: var(--text-muted);
+        font-size: 11px;
+        margin-top: 2px;
+    }
+    
+    /* D9: Theme Toggle Button */
+    .theme-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .theme-toggle:hover {
+        background: var(--bg-hover);
+    }
+    
+    /* =========== HERO SECTION =========== */
+    .hero-section {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+        border-radius: 20px;
+        padding: 48px 32px;
+        text-align: center;
+        margin-bottom: 32px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
+        animation: rotateBackground 20s linear infinite;
+    }
+    
+    @keyframes rotateBackground {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .hero-title {
+        font-size: 48px;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 16px;
+        position: relative;
+        z-index: 1;
+    }
+    
+    .hero-subtitle {
+        font-size: 18px;
+        color: var(--text-muted);
+        max-width: 600px;
+        margin: 0 auto 24px;
+        position: relative;
+        z-index: 1;
+    }
+    
+    /* =========== PROGRESS INDICATOR =========== */
+    .progress-container {
+        background: var(--bg-card);
+        border-radius: 12px;
+        padding: 16px;
+        margin: 16px 0;
+    }
+    
+    .progress-bar {
+        height: 8px;
+        background: var(--bg-hover);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 8px;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+        border-radius: 4px;
+        transition: width 0.5s ease;
+    }
+    
+    .progress-text {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+    
+    /* =========== ENHANCED DATA TABLES =========== */
+    .dataframe {
+        border-collapse: separate !important;
+        border-spacing: 0 !important;
+        border-radius: 12px !important;
+        overflow: hidden !important;
+    }
+    
+    .dataframe th {
+        background: linear-gradient(135deg, var(--bg-card), var(--bg-hover)) !important;
+        color: var(--text-primary) !important;
+        font-weight: 600 !important;
+        padding: 14px 16px !important;
+        text-align: left !important;
+        border-bottom: 2px solid var(--accent-blue) !important;
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 10 !important;
+    }
+    
+    .dataframe td {
+        padding: 12px 16px !important;
+        border-bottom: 1px solid var(--border-color) !important;
+        transition: background 0.15s !important;
+    }
+    
+    .dataframe tr:hover td {
+        background: var(--bg-hover) !important;
+    }
+    
+    .dataframe tr:last-child td {
+        border-bottom: none !important;
+    }
+    
+    /* =========== TOOLTIP =========== */
+    .tooltip {
+        position: relative;
+        display: inline-block;
+    }
+    
+    .tooltip .tooltip-text {
+        visibility: hidden;
+        position: absolute;
+        z-index: 1000;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(17, 24, 39, 0.95);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.2s, visibility 0.2s;
+    }
+    
+    .tooltip:hover .tooltip-text {
+        visibility: visible;
+        opacity: 1;
+    }
+    
+    /* =========== CODE BLOCK STYLING =========== */
+    .code-block {
+        background: #1e1e2e;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 16px;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        overflow-x: auto;
+        position: relative;
+    }
+    
+    .code-block::before {
+        content: 'SQL';
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .code-keyword { color: #ff79c6; }
+    .code-string { color: #f1fa8c; }
+    .code-number { color: #bd93f9; }
+    .code-function { color: #50fa7b; }
+    .code-comment { color: #6272a4; font-style: italic; }
+    
+    /* =========== CHIP / TAG STYLING =========== */
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 12px;
+        border-radius: 16px;
+        font-size: 12px;
+        font-weight: 500;
+        margin: 2px;
+    }
+    
+    .chip-primary {
+        background: rgba(59, 130, 246, 0.15);
+        color: var(--accent-blue);
+    }
+    
+    .chip-success {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+    }
+    
+    .chip-warning {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+    }
+    
+    .chip-danger {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+    }
+    
+    /* =========== LOADING SPINNER =========== */
+    .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--border-color);
+        border-top-color: var(--accent-blue);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .loading-text {
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 14px;
+        margin-top: 12px;
+    }
+    
+    /* =========== NOTIFICATION BADGE =========== */
+    .notification-badge {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        background: linear-gradient(135deg, #ef4444, #f97316);
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        min-width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 5px;
+    }
+    
+    /* =========== DIVIDER =========== */
+    .divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--border-color), transparent);
+        margin: 24px 0;
+    }
+    
+    .divider-text {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        color: var(--text-muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .divider-text::before,
+    .divider-text::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border-color);
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-# SESSION STATE INITIALIZATION
-# =============================================================================
+# D9: Apply theme dynamically
+def apply_theme():
+    """Apply current theme to the page via JavaScript."""
+    theme = st.session_state.get("theme", "dark")
+    st.markdown(f"""
+    <script>
+        document.documentElement.setAttribute('data-theme', '{theme}');
+        document.body.setAttribute('data-theme', '{theme}');
+        // Also update Streamlit's root element
+        const stApp = document.querySelector('.stApp');
+        if (stApp) stApp.setAttribute('data-theme', '{theme}');
+    </script>
+    """, unsafe_allow_html=True)
+
+apply_theme()
+
+# -----------------------------------------------------------------------------
+# Session State Initialization
+# -----------------------------------------------------------------------------
 
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -327,6 +999,14 @@ if "auth_token" not in st.session_state:
     st.session_state.auth_token = None
 if "user" not in st.session_state:
     st.session_state.user = None
+# D9: Theme state
+if "theme" not in st.session_state:
+    st.session_state.theme = "dark"
+# D12: Query suggestions cache
+if "query_suggestions" not in st.session_state:
+    st.session_state.query_suggestions = []
+if "saved_queries" not in st.session_state:
+    st.session_state.saved_queries = []
 if "show_auth_modal" not in st.session_state:
     st.session_state.show_auth_modal = False
 # Language state
@@ -335,9 +1015,9 @@ if "language" not in st.session_state:
 # Apply saved language
 set_language(st.session_state.language)
 
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Helper Functions
+# -----------------------------------------------------------------------------
 
 def check_backend_health():
     """Check if backend is running."""
@@ -377,13 +1057,42 @@ def send_query(question: str) -> dict:
             json={"question": question},
             timeout=30
         )
+        
+        # D6: Handle session expiry gracefully
+        if response.status_code == 404:
+            error_detail = response.json().get("detail", "")
+            if "session" in error_detail.lower() or "not found" in error_detail.lower():
+                # Session expired - try to recreate
+                st.session_state.session_id = None
+                if create_session():
+                    # Retry with new session
+                    new_url = f"{BACKEND_URL}/api/session/{st.session_state.session_id}/analyze"
+                    response = requests.post(new_url, json={"question": question}, timeout=30)
+                    return response.json()
+                else:
+                    return {"error": "Sessione scaduta. Ricarica la pagina per continuare."}
+        
+        if response.status_code == 422:
+            # Validation error
+            detail = response.json().get("detail", [])
+            if isinstance(detail, list) and detail:
+                msg = detail[0].get("msg", "Errore di validazione")
+            else:
+                msg = str(detail)
+            return {"error": f"Validazione fallita: {msg}"}
+        
+        if response.status_code >= 500:
+            return {"error": "Errore interno del server. Riprova tra qualche istante."}
+        
         return response.json()
     except requests.exceptions.ConnectionError:
-        return {"error": "Impossibile connettersi al backend. Verifica che sia in esecuzione."}
+        return {"error": "Impossibile connettersi al backend. Verifica che il server sia in esecuzione."}
     except requests.exceptions.Timeout:
-        return {"error": "Timeout: il server non risponde."}
+        return {"error": "Timeout: la richiesta sta impiegando troppo tempo. Prova una domanda più semplice."}
+    except requests.exceptions.JSONDecodeError:
+        return {"error": "Errore nel parsing della risposta dal server."}
     except Exception as e:
-        return {"error": f"Errore: {str(e)}"}
+        return {"error": f"Errore inatteso: {str(e)}"}
 
 
 def upload_files_to_backend(files, file_type="csv"):
@@ -438,9 +1147,9 @@ def reset_to_demo():
         return False, f"Errore: {str(e)}"
 
 
-# =============================================================================
-# AUTHENTICATION FUNCTIONS
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Authentication Functions
+# -----------------------------------------------------------------------------
 
 def login_user(username: str, password: str):
     """Login user and get JWT token."""
@@ -458,6 +1167,9 @@ def login_user(username: str, password: str):
                 "username": data["username"],
                 "email": data["email"]
             }
+            # D7: Load history from backend on login
+            load_history_from_backend()
+            load_saved_queries()
             return True, "Login effettuato con successo"
         else:
             detail = response.json().get("detail", "Credenziali non valide")
@@ -482,6 +1194,9 @@ def register_user(username: str, email: str, password: str):
                 "username": data["username"],
                 "email": data["email"]
             }
+            # D7: Load history from backend on registration
+            load_history_from_backend()
+            load_saved_queries()
             return True, "Registrazione completata"
         else:
             detail = response.json().get("detail", "Errore nella registrazione")
@@ -505,9 +1220,9 @@ def logout_user():
     st.session_state.user = None
 
 
-# =============================================================================
-# EXPORT FUNCTIONS
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Export Functions
+# -----------------------------------------------------------------------------
 
 def export_to_format(data: list, format_type: str, title: str = "Report", query: str = None):
     """Export data to specified format."""
@@ -546,15 +1261,156 @@ def generate_dashboard(data: list, title: str = "Dashboard"):
         return False, str(e)
 
 
+# -----------------------------------------------------------------------------
+# D7: History Persistence Functions
+# -----------------------------------------------------------------------------
+
+def save_history_to_backend():
+    """Save query history to backend for logged-in users."""
+    if not st.session_state.auth_token or not st.session_state.history:
+        return
+    try:
+        requests.post(
+            f"{BACKEND_URL}/api/user/history",
+            json={"history": st.session_state.history},
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+            timeout=5
+        )
+    except:
+        pass  # Silent fail - history is not critical
+
+
+def load_history_from_backend():
+    """Load query history from backend for logged-in users."""
+    if not st.session_state.auth_token:
+        return
+    try:
+        response = requests.get(
+            f"{BACKEND_URL}/api/user/history",
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+            timeout=5
+        )
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.history = data.get("history", [])[:10]
+    except:
+        pass
+
+
+def load_saved_queries():
+    """Load saved/favorite queries for logged-in users."""
+    if not st.session_state.auth_token:
+        return []
+    try:
+        response = requests.get(
+            f"{BACKEND_URL}/api/user/queries",
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json().get("queries", [])
+    except:
+        pass
+    return []
+
+
+def save_query_to_favorites(question: str, sql: str):
+    """Save a query to user's favorites."""
+    if not st.session_state.auth_token:
+        return False, "Effettua il login per salvare le query"
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/api/user/queries",
+            json={"question": question, "sql": sql},
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+            timeout=5
+        )
+        if response.status_code == 200:
+            return True, "Query salvata!"
+        return False, response.json().get("detail", "Errore")
+    except Exception as e:
+        return False, str(e)
+
+
+# -----------------------------------------------------------------------------
+# D12: Query Autocomplete Functions
+# -----------------------------------------------------------------------------
+
+def get_query_suggestions(partial_query: str, db_tables: list) -> list:
+    """Generate query suggestions based on input and schema."""
+    suggestions = []
+    partial_lower = partial_query.lower().strip()
+    
+    if not partial_lower:
+        return []
+    
+    # Common query patterns
+    patterns = [
+        ("quanti", "Quanti {table} ci sono?", "COUNT query"),
+        ("mostra", "Mostra i primi 10 {table}", "SELECT TOP query"),
+        ("totale", "Qual è il totale di {field}?", "SUM query"),
+        ("media", "Qual è la media di {field}?", "AVG query"),
+        ("massimo", "Qual è il massimo {field}?", "MAX query"),
+        ("minimo", "Qual è il minimo {field}?", "MIN query"),
+        ("raggruppa", "Raggruppa {table} per {field}", "GROUP BY query"),
+        ("ordina", "Ordina {table} per {field}", "ORDER BY query"),
+        ("filtra", "Filtra {table} dove {field} = ", "WHERE query"),
+        ("top", "Top 5 {table} per {field}", "TOP N query"),
+    ]
+    
+    # Match based on input
+    for keyword, template, description in patterns:
+        if keyword.startswith(partial_lower[:3]) or partial_lower.startswith(keyword[:3]):
+            for table in (db_tables or ["customers", "orders", "products"]):
+                suggestion = template.replace("{table}", table).replace("{field}", "valore")
+                suggestions.append({
+                    "text": suggestion,
+                    "description": description,
+                    "type": "pattern"
+                })
+    
+    # Add from history
+    for item in st.session_state.history[:5]:
+        if partial_lower in item.get("question", "").lower():
+            suggestions.append({
+                "text": item["question"],
+                "description": "Query recente",
+                "type": "history"
+            })
+    
+    # Add saved queries
+    for saved in st.session_state.saved_queries[:5]:
+        if partial_lower in saved.get("question", "").lower():
+            suggestions.append({
+                "text": saved["question"],
+                "description": "Query salvata ⭐",
+                "type": "saved"
+            })
+    
+    # Remove duplicates and limit
+    seen = set()
+    unique = []
+    for s in suggestions:
+        if s["text"] not in seen:
+            seen.add(s["text"])
+            unique.append(s)
+    
+    return unique[:8]
+
+
 def add_to_history(question: str, success: bool):
     """Add query to history."""
     entry = {
         "time": datetime.now().strftime("%H:%M"),
         "question": question[:50] + "..." if len(question) > 50 else question,
+        "full_question": question,
         "success": success
     }
     st.session_state.history.insert(0, entry)
     st.session_state.history = st.session_state.history[:10]
+    
+    # D7: Persist to backend if logged in
+    save_history_to_backend()
 
 
 def detect_chart_type(df: pd.DataFrame) -> str:
@@ -637,7 +1493,12 @@ def create_chart(df: pd.DataFrame, chart_type: str):
             textfont=dict(color='#9ca3af', size=11)
         ))
         fig.update_layout(**layout, height=400, bargap=0.3, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': True,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'displaylogo': False,
+            'toImageButtonOptions': {'format': 'png', 'filename': 'datapulse_chart'}
+        })
         
     elif chart_type == "pie" and text_cols and numeric_cols:
         fig = go.Figure(go.Pie(
@@ -658,7 +1519,11 @@ def create_chart(df: pd.DataFrame, chart_type: str):
             height=400,
             annotations=[dict(text=f"<b>{total_str}</b>", x=0.5, y=0.5, font=dict(size=20, color='#ffffff'), showarrow=False)]
         )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'toImageButtonOptions': {'format': 'png', 'filename': 'datapulse_chart'}
+        })
         
     elif chart_type == "line" and numeric_cols:
         x_col = df.columns[0]
@@ -672,7 +1537,11 @@ def create_chart(df: pd.DataFrame, chart_type: str):
             fillcolor='rgba(59, 130, 246, 0.1)'
         ))
         fig.update_layout(**layout, height=400, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': True,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+            'displaylogo': False
+        })
         
     elif chart_type == "scatter" and len(numeric_cols) >= 2:
         fig = go.Figure(go.Scatter(
@@ -682,46 +1551,60 @@ def create_chart(df: pd.DataFrame, chart_type: str):
             marker=dict(size=10, color='#3b82f6', line=dict(color='#0a0a0b', width=1))
         ))
         fig.update_layout(**layout, height=400, xaxis_title=numeric_cols[0], yaxis_title=numeric_cols[1])
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': True,
+            'modeBarButtonsToRemove': ['lasso2d'],
+            'displaylogo': False
+        })
         
     else:
         st.dataframe(df, use_container_width=True, height=400)
 
 
-# =============================================================================
-# SIDEBAR
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Sidebar
+# -----------------------------------------------------------------------------
 
 with st.sidebar:
     # Language Selector at top
     lang_options = {code: f"{info['flag']} {info['native']}" for code, info in SUPPORTED_LANGUAGES.items()}
-    selected_lang = st.selectbox(
-        "🌐",
-        options=list(lang_options.keys()),
-        format_func=lambda x: lang_options[x],
-        index=list(lang_options.keys()).index(st.session_state.language),
-        key="lang_selector",
-        label_visibility="collapsed"
-    )
-    if selected_lang != st.session_state.language:
-        st.session_state.language = selected_lang
-        set_language(selected_lang)
-        st.rerun()
+    col_lang, col_theme = st.columns([3, 1])
+    
+    with col_lang:
+        selected_lang = st.selectbox(
+            "🌐",
+            options=list(lang_options.keys()),
+            format_func=lambda x: lang_options[x],
+            index=list(lang_options.keys()).index(st.session_state.language),
+            key="lang_selector",
+            label_visibility="collapsed"
+        )
+        if selected_lang != st.session_state.language:
+            st.session_state.language = selected_lang
+            set_language(selected_lang)
+            st.rerun()
+    
+    # D9: Theme Toggle
+    with col_theme:
+        theme_icon = "🌙" if st.session_state.theme == "dark" else "☀️"
+        if st.button(theme_icon, key="theme_toggle", help="Cambia tema"):
+            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+            st.rerun()
     
     # Logo & Brand
     st.markdown(f"""
         <div style="display: flex; align-items: center; gap: 12px; padding: 16px 0; border-bottom: 1px solid #2a2a32; margin-bottom: 24px;">
             <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px;">⚡</div>
             <div>
-                <div style="font-size: 18px; font-weight: 700; color: #ffffff;">{t('app_name')}</div>
-                <div style="font-size: 12px; color: #6b7280;">{t('app_tagline')}</div>
+                <div style="font-size: 18px; font-weight: 700; color: var(--text-primary);">{t('app_name')}</div>
+                <div style="font-size: 12px; color: var(--text-muted);">{t('app_tagline')}</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
     
-    # =========================================================================
-    # AUTHENTICATION SECTION
-    # =========================================================================
+    # -------------------------------------------------------------------------
+    # Authentication Section
+    # -------------------------------------------------------------------------
     
     if st.session_state.user:
         # User logged in
@@ -817,9 +1700,9 @@ with st.sidebar:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # =========================================================================
-    # DATA UPLOAD SECTION
-    # =========================================================================
+    # -------------------------------------------------------------------------
+    # Data Upload Section
+    # -------------------------------------------------------------------------
     
     st.markdown(f"#### 📤 {t('upload_title')}")
     
@@ -928,10 +1811,16 @@ with st.sidebar:
             st.session_state.last_df = None
             st.rerun()
     else:
+        # D10: Improved Empty State for History
+        empty_title = t('history_empty') if t('history_empty') else 'Nessuna query ancora'
+        empty_desc = 'Fai la tua prima domanda sui dati e apparirà qui la cronologia delle tue ricerche.'
         st.markdown(f"""
-            <div style="text-align: center; padding: 24px; color: #6b7280;">
-                <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;">📋</div>
-                <div>{t('history_empty')}</div>
+            <div class="empty-state">
+                <div class="empty-state-icon">📋</div>
+                <div class="empty-state-title">{empty_title}</div>
+                <div class="empty-state-description">
+                    {empty_desc}
+                </div>
             </div>
         """, unsafe_allow_html=True)
     
@@ -1017,9 +1906,9 @@ with st.sidebar:
             st.markdown("---")
             st.markdown(f"**{t('schema_tables')}:** {', '.join(st.session_state.db_tables)}")
 
-# =============================================================================
-# MAIN CONTENT
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Main Content
+# -----------------------------------------------------------------------------
 
 # Hero Section (only when no results)
 if st.session_state.last_result is None:
@@ -1052,9 +1941,40 @@ with col1:
         placeholder=placeholder_text,
         label_visibility="collapsed"
     )
+    # D11: Keyboard Navigation Hint
+    st.markdown("""
+        <div style="display: flex; align-items: center; gap: 16px; margin-top: 4px;">
+            <span class="keyboard-hint">⏎ Enter per inviare</span>
+            <span class="keyboard-hint">↑↓ Naviga suggerimenti</span>
+        </div>
+    """, unsafe_allow_html=True)
 
 with col2:
     submit = st.button(t('query_btn'), type="primary", use_container_width=True)
+
+# D12: Autocomplete Suggestions - Show when typing
+if question and len(question) >= 2 and not submit:
+    suggestions_list = get_query_suggestions(
+        question, 
+        st.session_state.get("db_tables", [])
+    )
+    if suggestions_list:
+        st.markdown("""
+            <div class="autocomplete-dropdown" style="position: relative; margin-top: 8px;">
+        """, unsafe_allow_html=True)
+        
+        for idx, suggestion in enumerate(suggestions_list[:5]):
+            col_sug = st.columns([1])
+            with col_sug[0]:
+                if st.button(
+                    f"🔍 {suggestion}", 
+                    key=f"autocomplete_{idx}",
+                    use_container_width=True
+                ):
+                    st.session_state["_pending_query"] = suggestion
+                    st.rerun()
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # Quick suggestions (only when no results)
 if st.session_state.last_result is None:
@@ -1091,21 +2011,66 @@ if "_pending_query" in st.session_state:
     del st.session_state["_pending_query"]
     submit = True
 
-# =============================================================================
-# QUERY EXECUTION
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Query Execution
+# -----------------------------------------------------------------------------
 
 if submit and question:
+    # D5: Enhanced input validation with inline feedback
+    validation_error = None
     if not question.strip():
-        st.warning(f"⚠️ {t('query_empty')}")
-    elif len(question) < 5:
-        st.warning(f"⚠️ {t('query_too_short')}")
+        validation_error = ("empty", t('query_empty'))
+    elif len(question.strip()) < 5:
+        validation_error = ("short", t('query_too_short'))
+    elif len(question) > 500:
+        validation_error = ("long", "La domanda è troppo lunga (max 500 caratteri)")
+    elif "<script" in question.lower() or "javascript:" in question.lower():
+        validation_error = ("security", "Input non valido: contenuto non permesso")
+    
+    if validation_error:
+        error_type, error_msg = validation_error
+        st.markdown(f"""
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); 
+                        border-radius: 8px; padding: 12px 16px; margin: 8px 0;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 20px;">⚠️</span>
+                    <div>
+                        <div style="color: #f59e0b; font-weight: 500;">{error_msg}</div>
+                        <div style="color: #9ca3af; font-size: 12px; margin-top: 4px;">
+                            {'Inserisci una domanda valida' if error_type == 'empty' else
+                             'Prova con una domanda più specifica, es: "Quanti clienti ci sono?"' if error_type == 'short' else
+                             'Semplifica la domanda per ottenere risultati migliori' if error_type == 'long' else
+                             'Rimuovi contenuto non valido dalla domanda'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        with st.spinner(f"⚡ {t('query_analyzing')}"):
-            start_time = time.time()
-            result = send_query(question)
-            elapsed = time.time() - start_time
-            st.session_state.query_time = elapsed
+        # D2: Enhanced loading state with progress indication
+        progress_placeholder = st.empty()
+        progress_placeholder.markdown(f"""
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); 
+                        border-radius: 8px; padding: 16px; margin: 8px 0; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 12px;">
+                    <div class="loading-spinner" style="width: 24px; height: 24px; border: 3px solid #3b82f6; 
+                         border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <div style="color: #3b82f6; font-weight: 500;">⚡ {t('query_analyzing')}</div>
+                </div>
+                <div style="color: #6b7280; font-size: 12px; margin-top: 8px;">
+                    Generazione SQL in corso con AI...
+                </div>
+            </div>
+            <style>
+                @keyframes spin {{ from {{ transform: rotate(0deg); }} to {{ transform: rotate(360deg); }} }}
+            </style>
+        """, unsafe_allow_html=True)
+        
+        start_time = time.time()
+        result = send_query(question)
+        elapsed = time.time() - start_time
+        st.session_state.query_time = elapsed
+        progress_placeholder.empty()
         
         if "error" in result:
             st.session_state.last_result = {"error": result["error"]}
@@ -1120,9 +2085,9 @@ if submit and question:
         
         st.rerun()
 
-# =============================================================================
-# RESULTS DISPLAY
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Results Display
+# -----------------------------------------------------------------------------
 
 if st.session_state.last_result is not None:
     result = st.session_state.last_result
@@ -1130,14 +2095,55 @@ if st.session_state.last_result is not None:
     st.markdown("---")
     
     if "error" in result:
-        # Error display
+        # D1: Enhanced error display with categorization and suggestions
+        error_msg = result["error"]
+        
+        # Categorize error and provide helpful suggestions
+        if "connett" in error_msg.lower() or "backend" in error_msg.lower() or "timeout" in error_msg.lower():
+            error_icon = "🔌"
+            error_title = "Errore di Connessione"
+            error_suggestion = "Verifica che il server backend sia in esecuzione (uvicorn backend.main:app)"
+            error_color = "#f59e0b"  # Warning yellow
+        elif "sql" in error_msg.lower() or "syntax" in error_msg.lower() or "query" in error_msg.lower():
+            error_icon = "💾"
+            error_title = "Errore SQL"
+            error_suggestion = "Prova a riformulare la domanda in modo più specifico"
+            error_color = "#ef4444"  # Red
+        elif "tabella" in error_msg.lower() or "table" in error_msg.lower() or "column" in error_msg.lower():
+            error_icon = "📊"
+            error_title = "Tabella o Colonna Non Trovata"
+            error_suggestion = "Consulta lo schema database nella sidebar per vedere le tabelle disponibili"
+            error_color = "#8b5cf6"  # Purple
+        elif "permesso" in error_msg.lower() or "permission" in error_msg.lower() or "blocked" in error_msg.lower():
+            error_icon = "🔒"
+            error_title = "Operazione Non Permessa"
+            error_suggestion = "Solo query SELECT sono consentite per motivi di sicurezza"
+            error_color = "#ef4444"
+        elif "session" in error_msg.lower() or "sessione" in error_msg.lower():
+            error_icon = "🔄"
+            error_title = "Sessione Scaduta"
+            error_suggestion = "La sessione è scaduta. Ricarica la pagina per crearne una nuova."
+            error_color = "#f59e0b"
+        else:
+            error_icon = "❌"
+            error_title = t('results_error')
+            error_suggestion = "Prova a riformulare la domanda o controlla i log per maggiori dettagli"
+            error_color = "#ef4444"
+        
         st.markdown(f"""
-            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 20px; margin: 16px 0;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <div style="width: 36px; height: 36px; background: #ef4444; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✕</div>
-                    <div>
-                        <div style="color: #ef4444; font-weight: 600; font-size: 16px;">{t('results_error')}</div>
-                        <div style="color: #9ca3af; font-size: 14px; margin-top: 4px;">{result["error"]}</div>
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid {error_color}40; border-radius: 12px; padding: 20px; margin: 16px 0;">
+                <div style="display: flex; align-items: flex-start; gap: 14px;">
+                    <div style="width: 42px; height: 42px; background: {error_color}20; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">
+                        {error_icon}
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="color: {error_color}; font-weight: 600; font-size: 16px; margin-bottom: 6px;">{error_title}</div>
+                        <div style="color: #d1d5db; font-size: 14px; line-height: 1.5;">{error_msg}</div>
+                        <div style="margin-top: 12px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid {error_color};">
+                            <div style="color: #9ca3af; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                <span>💡</span> <strong>Suggerimento:</strong> {error_suggestion}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1200,6 +2206,20 @@ if st.session_state.last_result is not None:
         with tab_sql:
             st.markdown(f"##### {t('results_sql_generated')}")
             st.code(st.session_state.last_sql, language="sql")
+            
+            # D12: Save query to favorites
+            col_save, col_copy = st.columns(2)
+            with col_save:
+                if st.session_state.auth_token:
+                    if st.button("⭐ Salva ai preferiti", key="save_query_fav", use_container_width=True):
+                        if st.session_state.history:
+                            latest_query = st.session_state.history[0].get("full_question", "")
+                            save_query_to_favorites(latest_query)
+                            st.success("Query salvata ai preferiti!")
+                else:
+                    st.info("🔐 Accedi per salvare query ai preferiti")
+            with col_copy:
+                st.markdown(f"<small style='color: var(--text-muted);'>Copia la query SQL per usarla altrove</small>", unsafe_allow_html=True)
             
             if not df.empty:
                 st.markdown(f"##### {t('results_data_structure')}")
@@ -1264,9 +2284,9 @@ if st.session_state.last_result is not None:
             else:
                 st.info(t('dashboard_run_query'))
 
-# =============================================================================
-# FOOTER
-# =============================================================================
+# -----------------------------------------------------------------------------
+# Footer
+# -----------------------------------------------------------------------------
 
 st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown(f"""

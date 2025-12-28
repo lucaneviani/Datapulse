@@ -1,14 +1,14 @@
 """
-Unit Tests per API Endpoint - DataPulse
-========================================
-Testa l'endpoint /api/analyze con vari scenari.
+DataPulse API Tests
+
+Unit tests for the /api/analyze endpoint and other API functionality.
 """
 
 import pytest
 import sys
 import os
 
-# Aggiungi il path del progetto
+# Add project path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient
@@ -35,17 +35,16 @@ class TestAnalyzeEndpoint:
         assert "generated_sql" in data or "error" in data
         
     def test_empty_question(self):
-        """Domanda vuota deve essere gestita."""
+        """Domanda vuota deve restituire 422 (validation error) per Pydantic min_length."""
         response = client.post("/api/analyze", json={"question": ""})
-        assert response.status_code == 200
-        # Potrebbe restituire errore o SQL vuoto
-        data = response.json()
-        assert isinstance(data, dict)
+        # Pydantic validation catches empty string (min_length=1)
+        assert response.status_code == 422
         
     def test_missing_question_field(self):
-        """Request senza campo question deve essere gestita."""
+        """Request senza campo question deve restituire 422 (campo richiesto)."""
         response = client.post("/api/analyze", json={})
-        assert response.status_code == 200
+        # Pydantic validation catches missing required field
+        assert response.status_code == 422
         
     def test_valid_count_query(self):
         """Query di conteggio deve funzionare (se AI disponibile)."""
@@ -78,10 +77,11 @@ class TestAPIErrorHandling:
         assert response.status_code in [200, 422]
         
     def test_long_question(self):
-        """Domanda molto lunga deve essere gestita."""
+        """Domanda troppo lunga deve restituire 422 (max_length exceeded)."""
         long_question = "What is " + "the total sales " * 100 + "?"
         response = client.post("/api/analyze", json={"question": long_question})
-        assert response.status_code == 200
+        # Pydantic validation catches max_length=500 violation
+        assert response.status_code == 422
         
     def test_special_characters_in_question(self):
         """Caratteri speciali nella domanda devono essere gestiti."""
@@ -127,6 +127,32 @@ class TestAPIIntegration:
             # Verifica che sia una query di conteggio
             sql = data["generated_sql"].upper()
             assert "SELECT" in sql
+
+
+class TestUploadEndpoint:
+    """Integration test for CSV upload endpoint."""
+
+    def test_upload_csv_via_api(self):
+        # Create a session first
+        response = client.post("/api/session/create")
+        assert response.status_code == 200
+        data = response.json()
+        session_id = data.get("session_id")
+        assert session_id
+
+        # Upload a simple CSV file
+        files = {"files": ("data.csv", b"col1,col2\n1,foo\n2,bar\n", "text/csv")}
+        response = client.post(f"/api/session/{session_id}/upload/csv", files=files)
+        assert response.status_code == 200
+        result = response.json()
+        assert result.get("success") is True
+        assert "tables" in result and len(result["tables"]) >= 1
+
+        # Now ask a question using the session DB
+        analyze_resp = client.post(f"/api/session/{session_id}/analyze", json={"question": "How many records are there?"})
+        assert analyze_resp.status_code == 200
+        analyze_data = analyze_resp.json()
+        assert "error" not in analyze_data or ("Only SELECT" not in str(analyze_data.get("error", "")))
 
 
 if __name__ == "__main__":
