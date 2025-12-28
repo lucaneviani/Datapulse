@@ -17,17 +17,6 @@
 
 ---
 
-## ⚠️ Security Notice
-
-**Before deploying to production:**
-1. Set `GOOGLE_API_KEY` in `.env` (never commit this file!)
-2. Configure `CORS_ORIGINS` with your actual domain
-3. Set strong `JWT_SECRET_KEY` (64+ chars)
-4. Review [SECURITY.md](SECURITY.md) for best practices
-5. Enable HTTPS (required for production)
-
----
-
 ## Overview
 
 **DataPulse** is a modern business intelligence platform that enables users to query SQL databases using natural language. Powered by Google Gemini AI, it automatically converts questions into secure SQL queries and presents results in interactive tables and charts.
