@@ -14,14 +14,14 @@ Copyright (c) 2024 Luca Neviani
 Licensed under the MIT License
 """
 
+import base64
 import io
 import json
-import base64
-import sqlite3
 import logging
+import sqlite3
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -37,82 +37,80 @@ EXPORTS_DIR.mkdir(exist_ok=True)
 # EXPORT FORMATI BASE
 # ============================================================================
 
+
 def export_to_csv(df: pd.DataFrame, filename: str = None) -> Tuple[bytes, str]:
     """
     Esporta DataFrame in CSV.
-    
+
     Returns:
         (contenuto_bytes, nome_file)
     """
     if filename is None:
         filename = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    
+
     buffer = io.StringIO()
-    df.to_csv(buffer, index=False, encoding='utf-8')
-    content = buffer.getvalue().encode('utf-8')
-    
+    df.to_csv(buffer, index=False, encoding="utf-8")
+    content = buffer.getvalue().encode("utf-8")
+
     return content, filename
 
 
 def export_to_json(df: pd.DataFrame, filename: str = None, orient: str = "records") -> Tuple[bytes, str]:
     """
     Esporta DataFrame in JSON.
-    
+
     Args:
         orient: 'records', 'columns', 'index', 'split', 'table'
-    
+
     Returns:
         (contenuto_bytes, nome_file)
     """
     if filename is None:
         filename = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    
-    content = df.to_json(orient=orient, indent=2, date_format='iso').encode('utf-8')
-    
+
+    content = df.to_json(orient=orient, indent=2, date_format="iso").encode("utf-8")
+
     return content, filename
 
 
 def export_to_excel(df: pd.DataFrame, filename: str = None, sheet_name: str = "Data") -> Tuple[bytes, str]:
     """
     Esporta DataFrame in Excel.
-    
+
     Returns:
         (contenuto_bytes, nome_file)
     """
     if filename is None:
         filename = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    
+
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
-    
+
     content = buffer.getvalue()
     return content, filename
 
 
-def export_multi_sheet_excel(
-    dataframes: Dict[str, pd.DataFrame], 
-    filename: str = None
-) -> Tuple[bytes, str]:
+def export_multi_sheet_excel(dataframes: Dict[str, pd.DataFrame], filename: str = None) -> Tuple[bytes, str]:
     """
     Esporta più DataFrame in un Excel multi-foglio.
-    
+
     Args:
         dataframes: Dict con nome_foglio -> DataFrame
-    
+
     Returns:
         (contenuto_bytes, nome_file)
     """
     if filename is None:
         filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    
+
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         for sheet_name, df in dataframes.items():
             # Excel sheet names max 31 chars
             safe_name = sheet_name[:31]
             df.to_excel(writer, sheet_name=safe_name, index=False)
-    
+
     content = buffer.getvalue()
     return content, filename
 
@@ -121,21 +119,17 @@ def export_multi_sheet_excel(
 # EXPORT HTML REPORT
 # ============================================================================
 
-def generate_html_report(
-    title: str,
-    sections: List[Dict],
-    include_charts: bool = True,
-    theme: str = "dark"
-) -> str:
+
+def generate_html_report(title: str, sections: List[Dict], include_charts: bool = True, theme: str = "dark") -> str:
     """
     Genera un report HTML completo.
-    
+
     Args:
         title: Titolo del report
         sections: Lista di sezioni con 'title', 'type', 'content'
         include_charts: Se includere grafici come SVG/PNG
         theme: 'dark' o 'light'
-    
+
     Returns:
         HTML string
     """
@@ -144,7 +138,7 @@ def generate_html_report(
     card_bg = "#1a1a1f" if theme == "dark" else "#f5f5f5"
     border_color = "#2a2a32" if theme == "dark" else "#e0e0e0"
     accent_color = "#3b82f6"
-    
+
     html = f"""
 <!DOCTYPE html>
 <html lang="it">
@@ -294,23 +288,23 @@ def generate_html_report(
             </div>
         </div>
 """
-    
+
     for section in sections:
-        section_type = section.get('type', 'text')
-        section_title = section.get('title', '')
-        content = section.get('content')
-        
+        section_type = section.get("type", "text")
+        section_title = section.get("title", "")
+        content = section.get("content")
+
         html += f'<div class="section">\n'
-        
+
         if section_title:
             icon = "📊" if section_type == "kpi" else "📋" if section_type == "table" else "📈"
-            html += f'<h2>{icon} {section_title}</h2>\n'
-        
+            html += f"<h2>{icon} {section_title}</h2>\n"
+
         if section_type == "kpi" and isinstance(content, list):
             html += '<div class="kpi-grid">\n'
             for kpi in content:
-                value = kpi.get('value', 'N/A')
-                label = kpi.get('label', '')
+                value = kpi.get("value", "N/A")
+                label = kpi.get("label", "")
                 # Format large numbers
                 if isinstance(value, (int, float)):
                     if value >= 1_000_000:
@@ -321,34 +315,34 @@ def generate_html_report(
                         display_value = f"{value:,.2f}" if isinstance(value, float) else f"{value:,}"
                 else:
                     display_value = str(value)
-                
-                html += f'''
+
+                html += f"""
                 <div class="kpi-card">
                     <div class="kpi-value">{display_value}</div>
                     <div class="kpi-label">{label}</div>
                 </div>
-'''
-            html += '</div>\n'
-        
+"""
+            html += "</div>\n"
+
         elif section_type == "table" and isinstance(content, pd.DataFrame):
-            html += content.to_html(index=False, classes='data-table', escape=False)
-        
+            html += content.to_html(index=False, classes="data-table", escape=False)
+
         elif section_type == "text":
-            html += f'<p>{content}</p>\n'
-        
+            html += f"<p>{content}</p>\n"
+
         elif section_type == "chart" and include_charts:
             # Chart image as base64
-            chart_data = content.get('image_base64', '')
+            chart_data = content.get("image_base64", "")
             if chart_data:
-                html += f'''
+                html += f"""
                 <div class="chart-container">
                     <img src="data:image/png;base64,{chart_data}" alt="{section_title}">
                 </div>
-'''
-        
-        html += '</div>\n'
-    
-    html += f'''
+"""
+
+        html += "</div>\n"
+
+    html += f"""
         <div class="footer">
             Report generato automaticamente da DataPulse AI Analytics<br>
             © {datetime.now().year} DataPulse
@@ -356,28 +350,24 @@ def generate_html_report(
     </div>
 </body>
 </html>
-'''
-    
+"""
+
     return html
 
 
-def export_to_html(
-    title: str,
-    sections: List[Dict],
-    filename: str = None
-) -> Tuple[bytes, str]:
+def export_to_html(title: str, sections: List[Dict], filename: str = None) -> Tuple[bytes, str]:
     """
     Esporta report in HTML.
-    
+
     Returns:
         (contenuto_bytes, nome_file)
     """
     if filename is None:
         filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-    
+
     html = generate_html_report(title, sections)
-    content = html.encode('utf-8')
-    
+    content = html.encode("utf-8")
+
     return content, filename
 
 
@@ -385,62 +375,44 @@ def export_to_html(
 # REPORT BUILDER
 # ============================================================================
 
+
 class ReportBuilder:
     """Builder per creare report complessi."""
-    
+
     def __init__(self, title: str, theme: str = "dark"):
         self.title = title
         self.theme = theme
         self.sections = []
-        self.metadata = {
-            "created_at": datetime.now().isoformat(),
-            "author": "DataPulse"
-        }
-    
-    def add_kpi_section(self, title: str, kpis: List[Dict]) -> 'ReportBuilder':
+        self.metadata = {"created_at": datetime.now().isoformat(), "author": "DataPulse"}
+
+    def add_kpi_section(self, title: str, kpis: List[Dict]) -> "ReportBuilder":
         """Aggiunge sezione KPI."""
-        self.sections.append({
-            "type": "kpi",
-            "title": title,
-            "content": kpis
-        })
+        self.sections.append({"type": "kpi", "title": title, "content": kpis})
         return self
-    
-    def add_table_section(self, title: str, df: pd.DataFrame) -> 'ReportBuilder':
+
+    def add_table_section(self, title: str, df: pd.DataFrame) -> "ReportBuilder":
         """Aggiunge sezione tabella."""
-        self.sections.append({
-            "type": "table",
-            "title": title,
-            "content": df
-        })
+        self.sections.append({"type": "table", "title": title, "content": df})
         return self
-    
-    def add_text_section(self, title: str, text: str) -> 'ReportBuilder':
+
+    def add_text_section(self, title: str, text: str) -> "ReportBuilder":
         """Aggiunge sezione testo."""
-        self.sections.append({
-            "type": "text",
-            "title": title,
-            "content": text
-        })
+        self.sections.append({"type": "text", "title": title, "content": text})
         return self
-    
-    def add_chart_section(self, title: str, image_base64: str) -> 'ReportBuilder':
+
+    def add_chart_section(self, title: str, image_base64: str) -> "ReportBuilder":
         """Aggiunge sezione grafico."""
-        self.sections.append({
-            "type": "chart",
-            "title": title,
-            "content": {"image_base64": image_base64}
-        })
+        self.sections.append({"type": "chart", "title": title, "content": {"image_base64": image_base64}})
         return self
-    
+
     def build_html(self) -> str:
         """Genera HTML del report."""
         return generate_html_report(self.title, self.sections, theme=self.theme)
-    
+
     def export(self, format: str = "html") -> Tuple[bytes, str]:
         """
         Esporta report nel formato specificato.
-        
+
         Args:
             format: 'html', 'json'
         """
@@ -454,12 +426,12 @@ class ReportBuilder:
                     {
                         "type": s["type"],
                         "title": s["title"],
-                        "content": s["content"].to_dict() if isinstance(s["content"], pd.DataFrame) else s["content"]
+                        "content": s["content"].to_dict() if isinstance(s["content"], pd.DataFrame) else s["content"],
                     }
                     for s in self.sections
-                ]
+                ],
             }
-            content = json.dumps(report_data, indent=2, default=str).encode('utf-8')
+            content = json.dumps(report_data, indent=2, default=str).encode("utf-8")
             filename = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             return content, filename
         else:
@@ -470,12 +442,14 @@ class ReportBuilder:
 # SCHEDULED REPORTS (placeholder per future implementazioni)
 # ============================================================================
 
+
 def init_scheduled_reports_table():
     """Inizializza tabella report schedulati."""
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
-    
-    cursor.execute("""
+
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS scheduled_reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -488,34 +462,30 @@ def init_scheduled_reports_table():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
-    """)
-    
+    """
+    )
+
     conn.commit()
     conn.close()
 
 
-def save_scheduled_report(
-    user_id: int,
-    name: str,
-    config: Dict,
-    schedule: str
-) -> Tuple[bool, str, Optional[int]]:
+def save_scheduled_report(user_id: int, name: str, config: Dict, schedule: str) -> Tuple[bool, str, Optional[int]]:
     """
     Salva un report schedulato.
-    
+
     Args:
         schedule: Cron-like string (es. "0 9 * * 1" = ogni lunedì alle 9)
     """
     init_scheduled_reports_table()
-    
+
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
-    
+
     try:
         cursor.execute(
             """INSERT INTO scheduled_reports (user_id, name, config, schedule) 
                VALUES (?, ?, ?, ?)""",
-            (user_id, name, json.dumps(config), schedule)
+            (user_id, name, json.dumps(config), schedule),
         )
         report_id = cursor.lastrowid
         conn.commit()
@@ -529,17 +499,17 @@ def save_scheduled_report(
 def get_scheduled_reports(user_id: int) -> List[Dict]:
     """Ottiene i report schedulati dell'utente."""
     init_scheduled_reports_table()
-    
+
     conn = sqlite3.connect(str(AUTH_DB_PATH))
     cursor = conn.cursor()
     cursor.execute(
         """SELECT id, name, config, schedule, last_run, next_run, is_active, created_at
            FROM scheduled_reports WHERE user_id = ? ORDER BY created_at DESC""",
-        (user_id,)
+        (user_id,),
     )
     results = cursor.fetchall()
     conn.close()
-    
+
     return [
         {
             "id": r[0],
@@ -549,7 +519,7 @@ def get_scheduled_reports(user_id: int) -> List[Dict]:
             "last_run": r[4],
             "next_run": r[5],
             "is_active": bool(r[6]),
-            "created_at": r[7]
+            "created_at": r[7],
         }
         for r in results
     ]
@@ -559,6 +529,7 @@ def get_scheduled_reports(user_id: int) -> List[Dict]:
 # EXPORT UTILITIES
 # ============================================================================
 
+
 def get_export_formats() -> List[Dict]:
     """Restituisce i formati di export disponibili."""
     return [
@@ -567,51 +538,46 @@ def get_export_formats() -> List[Dict]:
             "name": "CSV",
             "extension": ".csv",
             "mime_type": "text/csv",
-            "description": "Comma-separated values, compatibile con Excel"
+            "description": "Comma-separated values, compatibile con Excel",
         },
         {
             "id": "xlsx",
             "name": "Excel",
             "extension": ".xlsx",
             "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "description": "Microsoft Excel workbook"
+            "description": "Microsoft Excel workbook",
         },
         {
             "id": "json",
             "name": "JSON",
             "extension": ".json",
             "mime_type": "application/json",
-            "description": "JavaScript Object Notation"
+            "description": "JavaScript Object Notation",
         },
         {
             "id": "html",
             "name": "HTML Report",
             "extension": ".html",
             "mime_type": "text/html",
-            "description": "Report HTML formattato"
-        }
+            "description": "Report HTML formattato",
+        },
     ]
 
 
-def export_data(
-    df: pd.DataFrame,
-    format: str,
-    filename: str = None,
-    **kwargs
-) -> Tuple[bytes, str, str]:
+def export_data(df: pd.DataFrame, format: str, filename: str = None, **kwargs) -> Tuple[bytes, str, str]:
     """
     Funzione universale di export.
-    
+
     Returns:
         (contenuto_bytes, nome_file, mime_type)
     """
     formats_info = {f["id"]: f for f in get_export_formats()}
-    
+
     if format not in formats_info:
         raise ValueError(f"Formato non supportato: {format}")
-    
+
     format_info = formats_info[format]
-    
+
     if format == "csv":
         content, fname = export_to_csv(df, filename)
     elif format == "xlsx":
@@ -625,7 +591,7 @@ def export_data(
         content, fname = builder.export("html")
     else:
         raise ValueError(f"Formato non implementato: {format}")
-    
+
     return content, fname, format_info["mime_type"]
 
 
@@ -633,97 +599,102 @@ def export_data(
 # EXPORT SERVICE CLASS (Wrapper per main.py)
 # ============================================================================
 
+
 class ExportService:
     """
     Classe wrapper per le funzioni di export.
     Fornisce un'interfaccia unificata per main.py.
     """
-    
+
     def export_to_csv(self, data: List[Dict]) -> bytes:
         """Esporta in CSV."""
         df = pd.DataFrame(data)
         content, _ = export_to_csv(df)
         return content
-    
+
     def export_to_excel(self, data: List[Dict], title: str = None, query: str = None) -> bytes:
         """Esporta in Excel."""
         df = pd.DataFrame(data)
         content, _ = export_to_excel(df)
         return content
-    
+
     def export_to_pdf(self, data: List[Dict], title: str = None, query: str = None) -> bytes:
         """Esporta in PDF."""
         df = pd.DataFrame(data)
         try:
             builder = ReportBuilder(title or "Report DataPulse")
-            
+
             # Aggiungi info query se presente
             if query:
                 builder.add_text_section("Query SQL", query)
-            
+
             # Aggiungi tabella dati
             builder.add_table_section("Risultati", df)
-            
+
             # Aggiungi statistiche
             stats = {
                 "Righe totali": len(df),
                 "Colonne": len(df.columns),
-                "Generato il": datetime.now().strftime("%d/%m/%Y %H:%M")
+                "Generato il": datetime.now().strftime("%d/%m/%Y %H:%M"),
             }
             builder.add_kpi_section("Statistiche", stats)
-            
+
             content, _ = builder.export("pdf")
             return content
         except Exception as e:
             logger.error(f"Errore export PDF: {e}")
             # Fallback: genera PDF semplice con tabella
             return self._simple_pdf(data, title)
-    
+
     def _simple_pdf(self, data: List[Dict], title: str = None) -> bytes:
         """Genera PDF semplice come fallback."""
         try:
-            from reportlab.lib.pagesizes import A4
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-            from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.lib import colors
-            
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=A4)
             elements = []
-            
+
             styles = getSampleStyleSheet()
-            elements.append(Paragraph(title or "Report", styles['Heading1']))
-            
+            elements.append(Paragraph(title or "Report", styles["Heading1"]))
+
             if data:
                 df = pd.DataFrame(data)
                 # Limita colonne e righe per PDF
                 df = df.iloc[:100, :10]
-                
+
                 table_data = [list(df.columns)]
                 for _, row in df.iterrows():
                     table_data.append([str(v)[:30] for v in row.values])
-                
+
                 table = Table(table_data)
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 8),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
+                table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                            ("FONTSIZE", (0, 0), (-1, -1), 8),
+                            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ]
+                    )
+                )
                 elements.append(table)
-            
+
             doc.build(elements)
             return buffer.getvalue()
         except Exception as e:
             logger.error(f"Errore PDF semplice: {e}")
             # Ultra fallback: CSV
             return self.export_to_csv(data)
-    
+
     def export_to_html(self, data: List[Dict], title: str = None, query: str = None) -> bytes:
         """Esporta in HTML."""
         df = pd.DataFrame(data)
-        
+
         html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -768,9 +739,9 @@ class ExportService:
     </footer>
 </body>
 </html>"""
-        
-        return html.encode('utf-8')
-    
+
+        return html.encode("utf-8")
+
     def generate_report(
         self,
         data: List[Dict],
@@ -778,7 +749,7 @@ class ExportService:
         title: str = "Report",
         query: str = None,
         include_charts: bool = True,
-        include_summary: bool = True
+        include_summary: bool = True,
     ) -> bytes:
         """Genera un report completo."""
         if format_type == "pdf":

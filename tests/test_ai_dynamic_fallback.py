@@ -1,4 +1,5 @@
 import sys
+
 sys.path.insert(0, "Datapulse")
 
 from backend.ai_service import generate_sql_dynamic, validate_sql_dynamic

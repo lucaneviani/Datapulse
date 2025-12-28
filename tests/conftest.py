@@ -4,9 +4,10 @@ DataPulse Test Configuration
 Shared pytest fixtures and configuration.
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add project path to PYTHONPATH
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
